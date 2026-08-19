@@ -12,7 +12,6 @@ document.querySelectorAll(".nav-links a, .nav-cta").forEach((link) => {
 const form = document.getElementById("consult-form");
 const status = document.getElementById("form-status");
 const submitBtn = form.querySelector('button[type="submit"]');
-const ajaxEndpoint = form.action.replace("formsubmit.co/", "formsubmit.co/ajax/");
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -30,7 +29,7 @@ form.addEventListener("submit", async (e) => {
   status.classList.remove("visible");
 
   try {
-    const res = await fetch(ajaxEndpoint, {
+    const res = await fetch(form.action, {
       method: "POST",
       headers: { Accept: "application/json" },
       body: data,
