@@ -11,8 +11,10 @@ document.querySelectorAll(".nav-links a, .nav-cta").forEach((link) => {
 
 const form = document.getElementById("consult-form");
 const status = document.getElementById("form-status");
+const submitBtn = form.querySelector('button[type="submit"]');
+const ajaxEndpoint = form.action.replace("formsubmit.co/", "formsubmit.co/ajax/");
 
-form.addEventListener("submit", (e) => {
+form.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   if (!form.checkValidity()) {
@@ -21,25 +23,28 @@ form.addEventListener("submit", (e) => {
   }
 
   const data = new FormData(form);
-  const firstName = data.get("firstName");
-  const lastName = data.get("lastName");
-  const email = data.get("email");
-  const subject = data.get("subject");
-  const message = data.get("message") || "";
-  const newsletter = data.get("newsletter") ? "Yes" : "No";
+  data.set("newsletter", data.get("newsletter") ? "Yes" : "No");
 
-  const body =
-    `From: ${firstName} ${lastName} (${email})\n` +
-    `Wants updates: ${newsletter}\n\n` +
-    `${message}`;
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Sending...";
+  status.classList.remove("visible");
 
-  const mailto =
-    `mailto:jake.goldwasser@gmail.com?subject=${encodeURIComponent(subject)}` +
-    `&body=${encodeURIComponent(body)}`;
+  try {
+    const res = await fetch(ajaxEndpoint, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      body: data,
+    });
 
-  window.location.href = mailto;
+    if (!res.ok) throw new Error("Request failed");
 
-  status.textContent = "Opening your email client to send this note — thanks for reaching out!";
-  status.classList.add("visible");
-  form.reset();
+    status.textContent = "Thanks for reaching out — your note is on its way. We'll follow up soon!";
+    form.reset();
+  } catch (err) {
+    status.textContent = "Something went wrong sending your note. Please try again in a moment.";
+  } finally {
+    status.classList.add("visible");
+    submitBtn.disabled = false;
+    submitBtn.textContent = "Send Note";
+  }
 });

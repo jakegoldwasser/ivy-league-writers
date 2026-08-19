@@ -389,23 +389,19 @@ section { padding: 84px 0; }
 
 .contact-people { display: flex; flex-direction: column; gap: 16px; }
 
-.contact-people a {
+.contact-people div {
   display: block;
-  text-decoration: none;
   color: var(--ink);
   font-size: 0.95rem;
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 14px 18px;
   background: var(--paper);
-  transition: border-color 0.15s ease;
 }
 
-.contact-people a:hover { border-color: var(--accent); }
+.contact-people strong { display: block; font-family: var(--serif); font-size: 1.05rem; margin-bottom: 2px; }
 
-.contact-people a strong { display: block; font-family: var(--serif); font-size: 1.05rem; margin-bottom: 2px; }
-
-.contact-people a span { color: var(--accent); }
+.contact-people span { color: var(--accent); }
 
 form#consult-form {
   background: var(--paper);
