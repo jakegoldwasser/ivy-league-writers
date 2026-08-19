@@ -387,22 +387,6 @@ section { padding: 84px 0; }
 
 .contact-info p { color: var(--ink-soft); margin: 0 0 28px; }
 
-.contact-people { display: flex; flex-direction: column; gap: 16px; }
-
-.contact-people div {
-  display: block;
-  color: var(--ink);
-  font-size: 0.95rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px 18px;
-  background: var(--paper);
-}
-
-.contact-people strong { display: block; font-family: var(--serif); font-size: 1.05rem; margin-bottom: 2px; }
-
-.contact-people span { color: var(--accent); }
-
 form#consult-form {
   background: var(--paper);
   border: 1px solid var(--line);
