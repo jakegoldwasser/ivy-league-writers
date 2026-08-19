@@ -140,10 +140,7 @@ header.site-header {
 }
 
 .hero .wrap {
-  display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 64px;
-  align-items: center;
+  max-width: 760px;
 }
 
 .eyebrow {
@@ -186,49 +183,6 @@ header.site-header {
 }
 
 .hero-stats div span {
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-}
-
-.hero-art {
-  position: relative;
-  aspect-ratio: 4 / 5;
-  border-radius: 24px;
-  background: linear-gradient(155deg, var(--accent-soft), var(--paper-alt));
-  border: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.hero-art::before {
-  content: "\201C";
-  font-family: var(--serif);
-  font-size: 14rem;
-  color: rgba(27, 92, 143, 0.16);
-  position: absolute;
-  top: -30px;
-  left: 18px;
-  line-height: 1;
-}
-
-.hero-art blockquote {
-  position: relative;
-  font-family: var(--serif);
-  font-size: 1.35rem;
-  line-height: 1.5;
-  padding: 0 40px;
-  text-align: center;
-  color: var(--ink);
-  margin: 0;
-}
-
-.hero-art cite {
-  display: block;
-  margin-top: 18px;
-  font-family: var(--sans);
-  font-style: normal;
   font-size: 0.85rem;
   color: var(--ink-soft);
 }
@@ -477,8 +431,6 @@ footer .copy { width: 100%; font-size: 0.8rem; color: var(--ink-soft); margin-to
 /* ---------- Responsive ---------- */
 
 @media (max-width: 880px) {
-  .hero .wrap { grid-template-columns: 1fr; }
-  .hero-art { aspect-ratio: 16/9; order: -1; }
   .coach-grid { grid-template-columns: 1fr; }
   .service-row { grid-template-columns: 1fr; gap: 14px; }
   .contact-grid { grid-template-columns: 1fr; }
