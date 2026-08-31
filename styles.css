@@ -372,6 +372,10 @@ section { padding: 84px 0; }
 
 .service-row .service-body p:last-child { margin-bottom: 0; }
 
+/* ---------- Book Development ---------- */
+
+.book-development { background: var(--paper); }
+
 /* ---------- Contact ---------- */
 
 .contact { background: var(--paper-alt); }
