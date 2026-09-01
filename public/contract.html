@@ -377,6 +377,10 @@
       : 'Palisade Writers ("Company")';
   }
 
+  function companyShortName(){
+    return $('llcApproved').checked ? 'Palisade Writers LLC' : 'Palisade Writers';
+  }
+
   function tutorName(){
     return radioVal('tutor') === 'Other' ? $('tutorOther').value.trim() : radioVal('tutor');
   }
@@ -475,7 +479,7 @@
 
   function standaloneInvoiceDoc(){
     return `
-      <h2 class="doctitle">${companyLine().replace(/ \("Company"\)$/,'')}</h2>
+      <h2 class="doctitle">${companyShortName()}</h2>
       <p class="docsub">Invoice</p>
       ${buildInvoiceHTML()}
       <p class="disclaimer">Questions about this invoice? Contact ${f(tutorName(), '[tutor name]')}.</p>
@@ -497,7 +501,7 @@
     const invHtml = invoiceBlock();
 
     const html = `
-      <h2 class="doctitle">${companyLine().replace(/ \("Company"\)$/,'')}</h2>
+      <h2 class="doctitle">${companyShortName()}</h2>
       <p class="docsub">Tutoring &amp; Academic Coaching Services Agreement</p>
 
       <p>This Tutoring &amp; Academic Coaching Services Agreement ("Agreement") is entered into as of
