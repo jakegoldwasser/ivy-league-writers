@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
-<meta name="description" content="Internal client-agreement drafting tool for Palisade Tutoring LLC." />
+<meta name="description" content="Internal client-agreement drafting tool for Palisade Writers LLC." />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9C%8D%EF%B8%8F</text></svg>" />
 <title>Palisade Agreement Builder</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -149,7 +149,7 @@
     <div class="brandrow">
       <div>
         <h1>Palisade Agreement Builder</h1>
-        <p class="tag">Palisade Tutoring LLC &mdash; client agreement drafting tool</p>
+        <p class="tag">Palisade Writers LLC &mdash; client agreement drafting tool</p>
       </div>
       <span class="status" id="progressStatus">0 / 10 fields complete</span>
     </div>
@@ -378,8 +378,8 @@
 
   function companyLine(){
     return $('llcApproved').checked
-      ? 'Palisade Tutoring LLC, a New York limited liability company ("Company")'
-      : 'Palisade Tutoring ("Company")';
+      ? 'Palisade Writers LLC, a New York limited liability company ("Company")'
+      : 'Palisade Writers ("Company")';
   }
 
   function tutorName(){
@@ -418,6 +418,9 @@
       ' for ' + f(price ? money(price) : '', '[total price]') + '.</p>';
     if(includes) out += '<p><strong>Includes:</strong> ' + esc(includes) + '.</p>';
     out += '<p>Package fees are due in full, upfront, before the first session in the package. Packages are non-refundable once sessions have begun, but unused sessions may be rescheduled per the cancellation policy below.</p>';
+    const hourlyRate = $('hourlyRate').value;
+    out += '<p>Additional sessions beyond those included in this package may be purchased at Tutor\'s standard hourly rate of ' +
+      f(hourlyRate ? money(hourlyRate) + '/hr' : '', '[hourly rate]') + '.</p>';
     return out;
   }
 
