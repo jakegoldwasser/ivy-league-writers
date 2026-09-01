@@ -488,17 +488,7 @@
   }
 
   function cancellationBlock(){
-    const pricing = radioVal('pricing');
-    let base = '<p>Either party must give at least 48 hours\' notice to cancel or reschedule a scheduled session. This requirement applies equally to Tutor and to Client &mdash; the same 48-hour standard governs cancellations on both sides.</p>';
-    let clientSide, tutorSide;
-    if(pricing === 'package'){
-      clientSide = '<li>If <strong>Client</strong> cancels with less than 48 hours\' notice, the session is deducted from the package as used, except in cases of illness or genuine emergency, which will be handled on a case-by-case basis.</li>';
-      tutorSide = '<li>If <strong>Tutor</strong> cancels with less than 48 hours\' notice for reasons other than illness or emergency, the session is not deducted from the package and will be rescheduled at no additional cost.</li>';
-    } else {
-      clientSide = '<li>If <strong>Client</strong> cancels with less than 48 hours\' notice, the session is billed in full, except in cases of illness or genuine emergency, which will be handled on a case-by-case basis.</li>';
-      tutorSide = '<li>If <strong>Tutor</strong> cancels with less than 48 hours\' notice for reasons other than illness or emergency, Client will not be billed for that session and, at Client\'s option, will receive a make-up session at no additional cost.</li>';
-    }
-    return base + '<ul>' + clientSide + tutorSide + '</ul>';
+    return '<p>Either party must give at least 48 hours\' notice to cancel or reschedule a scheduled session, except in cases of illness or genuine emergency, which will be handled on a case-by-case basis.</p>';
   }
 
   function render(){
