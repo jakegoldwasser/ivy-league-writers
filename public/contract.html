@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="description" content="Internal client-agreement drafting tool for Palisade Tutoring LLC." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9C%8D%EF%B8%8F</text></svg>" />
+<title>Palisade Agreement Builder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#eff1ee;
+    --surface:#ffffff;
+    --surface-2:#f7f8f5;
+    --ink:#202a28;
+    --ink-soft:#55635f;
+    --accent:#2e6e68;
+    --accent-ink:#1d4b47;
+    --rust:#b15a32;
+    --border:#d9ded8;
+    --blank:#a9b5ae;
+    --shadow: 0 1px 2px rgba(20,30,28,.06), 0 8px 24px -12px rgba(20,30,28,.18);
+  }
+  *{box-sizing:border-box;}
+  .backlink{ display:inline-block; margin:14px 0 -6px 24px; font-family:'IBM Plex Sans', system-ui, sans-serif; font-size:12.5px; color:var(--ink-soft); text-decoration:none; }
+  .backlink:hover{ color:var(--accent-ink); text-decoration:underline; }
+  @media print{ .backlink{ display:none; } }
+  @media (prefers-reduced-motion: reduce){ *{transition:none !important; animation:none !important;} }
+
+  body{ background:var(--bg); color:var(--ink); font-family:'IBM Plex Sans', system-ui, sans-serif; }
+
+  .page{ max-width:1320px; margin:0 auto; padding:28px 24px 80px; }
+
+  header.top{ display:flex; flex-direction:column; gap:2px; padding-bottom:14px; margin-bottom:0; }
+  header.top .brandrow{ display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  header.top h1{ font-family:'Source Serif 4', serif; font-weight:700; font-size:clamp(22px,3vw,30px); margin:0; letter-spacing:-0.01em; text-wrap:balance; }
+  header.top .tag{ font-size:12.5px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.09em; margin:0; }
+  header.top .status{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--accent-ink); white-space:nowrap; }
+  .cliffline{ height:9px; margin-top:14px; opacity:.55;
+    background:
+      linear-gradient(135deg, var(--accent) 25%, transparent 25.5%) 0 0/18px 18px,
+      linear-gradient(225deg, var(--accent) 25%, transparent 25.5%) 0 0/18px 18px;
+  }
+
+  .mobileTabs{ display:none; gap:8px; margin:16px 0; position:sticky; top:0; z-index:5; background:var(--bg); padding:10px 0; }
+  .mobileTabs button{ flex:1; padding:9px 10px; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--ink); font:600 13px 'IBM Plex Sans'; cursor:pointer; }
+  .mobileTabs button.active{ background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  .workspace{ display:grid; grid-template-columns:minmax(320px,420px) 1fr; gap:28px; margin-top:22px; align-items:start; }
+
+  .formPane{ background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:20px 20px 24px; position:sticky; top:20px; max-height:calc(100vh - 40px); overflow-y:auto; }
+  .progress{ display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+  .progress .bar{ flex:1; height:5px; border-radius:3px; background:var(--border); overflow:hidden; }
+  .progress .bar > i{ display:block; height:100%; background:var(--accent); width:0%; transition:width .25s ease; }
+  .progress span{ font:500 11.5px 'IBM Plex Mono'; color:var(--ink-soft); white-space:nowrap; }
+
+  fieldset{ border:0; margin:0 0 22px; padding:0; }
+  fieldset legend{ font:600 11px 'IBM Plex Sans'; text-transform:uppercase; letter-spacing:.08em; color:var(--accent-ink); margin-bottom:10px; padding:0; }
+  .field{ margin-bottom:13px; }
+  label.lbl{ display:block; font-size:12.5px; font-weight:500; color:var(--ink); margin-bottom:5px; }
+  label.lbl .req{ color:var(--rust); margin-left:2px; }
+  label.lbl .hint{ color:var(--ink-soft); font-weight:400; }
+
+  input[type=text], input[type=number], input[type=date], textarea{
+    width:100%; padding:8px 10px; border-radius:7px; border:1px solid var(--border);
+    background:var(--surface); color:var(--ink); font:400 13.5px 'IBM Plex Sans'; outline:none;
+  }
+  input[type=number]{ font-family:'IBM Plex Mono'; font-variant-numeric:tabular-nums; }
+  textarea{ resize:vertical; min-height:56px; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible, .radiorow input:focus-visible + span{
+    outline:2px solid var(--accent); outline-offset:2px;
+  }
+
+  .radiorow{ display:flex; flex-wrap:wrap; gap:8px; }
+  .radiorow label{ display:flex; align-items:center; gap:6px; padding:6px 11px; border:1px solid var(--border); border-radius:999px; font-size:12.5px; cursor:pointer; background:var(--surface); }
+  .radiorow input{ accent-color:var(--accent); margin:0; }
+  .radiorow label:has(input:checked){ border-color:var(--accent); background:color-mix(in srgb, var(--accent) 14%, var(--surface)); font-weight:600; }
+
+  .check{ display:flex; align-items:flex-start; gap:8px; font-size:12.5px; color:var(--ink-soft); }
+  .check input{ margin-top:2px; accent-color:var(--accent); }
+
+  .subrow{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .indent{ padding-left:2px; margin-top:10px; border-left:2px solid var(--border); padding-left:12px; }
+
+  .toolbar{ display:flex; gap:10px; margin-top:6px; flex-wrap:wrap; }
+  .btn{ font:600 12.5px 'IBM Plex Sans'; padding:9px 14px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
+  .btn-primary{ background:var(--accent); color:#fff; }
+  .btn-primary:hover{ background:var(--accent-ink); }
+  .btn-ghost{ background:transparent; color:var(--ink-soft); border-color:var(--border); }
+  .btn-ghost:hover{ color:var(--ink); border-color:var(--ink-soft); }
+  .copied{ font:500 11.5px 'IBM Plex Mono'; color:var(--accent-ink); align-self:center; }
+
+  .previewPane{ min-width:0; }
+  .preview{ background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:48px 52px; max-width:760px; margin:0 auto; font-family:'Source Serif 4', serif; }
+  .preview h2.doctitle{ text-align:center; font-size:20px; margin:0 0 3px; letter-spacing:.01em; }
+  .preview p.docsub{ text-align:center; font-size:12.5px; color:var(--ink-soft); font-family:'IBM Plex Sans'; text-transform:uppercase; letter-spacing:.08em; margin:0 0 26px; }
+  .preview .rule{ border:0; border-top:1px solid var(--border); margin:22px 0; }
+  .preview p{ font-size:14.5px; line-height:1.65; margin:0 0 12px; }
+  .preview h3{ font-size:14px; font-family:'IBM Plex Sans'; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--accent-ink); margin:26px 0 8px; }
+  .preview ul{ margin:0 0 12px; padding-left:20px; }
+  .preview li{ font-size:14.5px; line-height:1.6; margin-bottom:6px; }
+  .preview .filled{ font-weight:600; }
+  .preview .blank{ color:var(--blank); border-bottom:1px dotted var(--blank); }
+  .invoice{ border:1.5px solid var(--ink); border-radius:10px; padding:20px 22px; margin:16px 0 24px; background:var(--surface-2); font-family:'IBM Plex Sans'; }
+  .invoice .invhead{ display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:12px; }
+  .invoice .invhead h4{ margin:0; font-size:15px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent-ink); }
+  .invoice .invhead .invno{ font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--ink-soft); }
+  .invoice .invrow{ display:flex; justify-content:space-between; gap:16px; font-size:13px; margin-bottom:6px; }
+  .invoice .invrow span:first-child{ color:var(--ink-soft); }
+  .invoice .invline{ display:flex; justify-content:space-between; gap:16px; font-size:13.5px; padding:8px 0; border-top:1px dashed var(--border); margin-top:8px; }
+  .invoice .invtotal{ display:flex; justify-content:space-between; gap:16px; font-size:15px; font-weight:700; padding-top:10px; border-top:1.5px solid var(--ink); margin-top:8px; }
+  .invoice .invnum{ font-family:'IBM Plex Mono'; font-variant-numeric:tabular-nums; }
+  .invoice .invfee{ font-size:11.5px; color:var(--ink-soft); font-style:italic; margin-top:12px; line-height:1.55; }
+  .sigblock{ margin-top:8px; }
+  .sigimgwrap{ height:52px; display:flex; align-items:flex-end; margin-top:28px; }
+  .sigimgwrap img{ height:46px; display:block; }
+  .sigimgwrap .pending{ font-family:'IBM Plex Sans'; font-size:11px; color:var(--blank); font-style:italic; border:1px dashed var(--blank); border-radius:6px; padding:6px 10px; }
+  .sigline{ border-top:1px solid var(--ink); margin-top:4px; padding-top:6px; font-family:'IBM Plex Sans'; font-size:11.5px; color:var(--ink-soft); }
+  .sigline.client{ margin-top:38px; }
+  .sigmeta{ font-family:'IBM Plex Sans'; font-size:12.5px; margin-top:14px; }
+  .disclaimer{ margin-top:30px; font-size:11.5px; color:var(--ink-soft); font-family:'IBM Plex Sans'; font-style:italic; }
+
+  @media (max-width: 900px){
+    .workspace{ grid-template-columns:1fr; }
+    .mobileTabs{ display:flex; }
+    .formPane{ position:static; max-height:none; }
+    .formPane, .previewPane{ display:none; }
+    body.tab-form .formPane{ display:block; }
+    body.tab-preview .previewPane{ display:block; }
+    .preview{ padding:30px 22px; }
+  }
+
+  @media print{
+    .mobileTabs, .formPane, header.top .status, .toolbar{ display:none !important; }
+    body, .page{ background:#fff; padding:0; margin:0; }
+    .workspace{ display:block; }
+    .cliffline{ display:none; }
+    .preview{ box-shadow:none; border:none; padding:0; max-width:none; }
+    @page{ margin:0.75in; }
+  }
+</style>
+</head>
+<body>
+<a href="/" class="backlink">&larr; palisadewriters.com</a>
+<div class="page">
+  <header class="top">
+    <div class="brandrow">
+      <div>
+        <h1>Palisade Agreement Builder</h1>
+        <p class="tag">Palisade Tutoring LLC &mdash; client agreement drafting tool</p>
+      </div>
+      <span class="status" id="progressStatus">0 / 10 fields complete</span>
+    </div>
+    <div class="cliffline"></div>
+  </header>
+
+  <div class="mobileTabs">
+    <button id="tabFormBtn" class="active">Fill in details</button>
+    <button id="tabPreviewBtn">Preview agreement</button>
+  </div>
+
+  <div class="workspace">
+    <div class="formPane" id="formPane">
+      <div class="progress">
+        <div class="bar"><i id="progressBar"></i></div>
+        <span id="progressLabel">0%</span>
+      </div>
+
+      <form id="theForm">
+        <fieldset>
+          <legend>Parties</legend>
+          <div class="field">
+            <label class="lbl">Company status</label>
+            <label class="check">
+              <input type="checkbox" id="llcApproved">
+              <span>LLC formation has been officially approved by New York State (leave unchecked while pending)</span>
+            </label>
+          </div>
+          <div class="field">
+            <label class="lbl">Tutor for this engagement <span class="req">*</span></label>
+            <div class="radiorow" id="tutorRadios">
+              <label><input type="radio" name="tutor" value="Abigail Melick"><span>Abigail Melick</span></label>
+              <label><input type="radio" name="tutor" value="Jacob Goldwasser" checked><span>Jacob Goldwasser</span></label>
+              <label><input type="radio" name="tutor" value="Other"><span>Other</span></label>
+            </div>
+            <div class="indent" id="tutorOtherWrap" style="display:none;">
+              <input type="text" id="tutorOther" placeholder="Tutor's full name">
+            </div>
+          </div>
+          <div class="field">
+            <label class="lbl" for="clientName">Client / parent or guardian name <span class="req">*</span></label>
+            <input type="text" id="clientName" placeholder="e.g. Jane Smith">
+          </div>
+          <div class="field">
+            <label class="lbl" for="studentName">Student name <span class="hint">(if different from client)</span></label>
+            <input type="text" id="studentName" placeholder="e.g. Alex Smith">
+          </div>
+          <div class="field">
+            <label class="lbl" for="effDate">Effective date</label>
+            <input type="date" id="effDate">
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Services</legend>
+          <div class="field">
+            <label class="lbl" for="subject">Subject / focus area <span class="req">*</span></label>
+            <input type="text" id="subject" placeholder="e.g. AP U.S. History &amp; college essays">
+          </div>
+          <div class="field">
+            <label class="lbl">Format <span class="req">*</span></label>
+            <div class="radiorow" id="formatRadios">
+              <label><input type="radio" name="format" value="standard" checked><span>Zoom / async (default)</span></label>
+              <label><input type="radio" name="format" value="inPerson"><span>In-person</span></label>
+              <label><input type="radio" name="format" value="other"><span>Other (specify)</span></label>
+            </div>
+            <div class="indent" id="locationWrap" style="display:none;">
+              <label class="lbl" for="location">In-person location</label>
+              <input type="text" id="location" placeholder="e.g. client's home in Brooklyn, or a local library">
+            </div>
+            <div class="indent" id="otherFormatWrap" style="display:none;">
+              <label class="lbl" for="otherFormat">Describe the arrangement</label>
+              <input type="text" id="otherFormat" placeholder="e.g. weekly phone calls, plus async feedback via email">
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Pricing &amp; payment</legend>
+          <div class="field">
+            <div class="radiorow" id="pricingRadios">
+              <label><input type="radio" name="pricing" value="hourly" checked><span>Hourly &mdash; $290/hr</span></label>
+              <label><input type="radio" name="pricing" value="package"><span>Package</span></label>
+            </div>
+          </div>
+
+          <div id="hourlyWrap" class="indent">
+            <label class="lbl" for="hourlyRate">Hourly rate ($)</label>
+            <input type="number" id="hourlyRate" value="290" min="0" step="5">
+            <p class="lbl" style="margin-top:8px;color:var(--ink-soft);font-weight:400;">First session due upfront; each session after that billed via Venmo or Zelle within 48 hours.</p>
+          </div>
+
+          <div id="packageWrap" class="indent" style="display:none;">
+            <label class="lbl">Tier</label>
+            <div class="radiorow" id="tierRadios">
+              <label><input type="radio" name="tier" value="Light" checked><span>Light</span></label>
+              <label><input type="radio" name="tier" value="Standard"><span>Standard</span></label>
+              <label><input type="radio" name="tier" value="Comprehensive"><span>Comprehensive</span></label>
+            </div>
+            <div class="subrow" style="margin-top:10px;">
+              <div class="field">
+                <label class="lbl" for="pkgSessions">Sessions included</label>
+                <input type="number" id="pkgSessions" min="1" step="1" placeholder="e.g. 8">
+              </div>
+              <div class="field">
+                <label class="lbl" for="pkgPrice">Total price ($)</label>
+                <input type="number" id="pkgPrice" min="0" step="10" placeholder="e.g. 2200">
+              </div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pkgIncludes">What's included <span class="hint">(optional)</span></label>
+              <textarea id="pkgIncludes" placeholder="e.g. weekly 60-minute sessions, essay outlining, two full-length practice exams"></textarea>
+            </div>
+            <p class="lbl" style="margin-top:2px;color:var(--ink-soft);font-weight:400;">Due in full, upfront, before the first session in the package.</p>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Legal details</legend>
+          <div class="field">
+            <label class="lbl">Governing law</label>
+            <input type="text" value="State of New York" disabled style="opacity:.75;">
+          </div>
+          <div class="field">
+            <label class="lbl" for="notes">Additional terms <span class="hint">(optional)</span></label>
+            <textarea id="notes" placeholder="Anything specific to this engagement not covered above"></textarea>
+          </div>
+        </fieldset>
+      </form>
+
+      <div class="toolbar">
+        <button class="btn btn-primary" id="printBtn">Print / Save as PDF</button>
+        <button class="btn btn-ghost" id="copyBtn">Copy contract text</button>
+        <button class="btn btn-ghost" id="resetBtn">Reset</button>
+        <span class="copied" id="copiedMsg" style="display:none;">Copied!</span>
+      </div>
+    </div>
+
+    <div class="previewPane" id="previewPane">
+      <div class="preview" id="preview"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const TUTOR_SIGNATURE_DATA_URI = 'data:image/png;base64,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';
+  const $ = id => document.getElementById(id);
+  const form = $('theForm');
+
+  function esc(s){
+    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function f(val, placeholder){
+    const v = (val ?? '').toString().trim();
+    return v ? '<span class="filled">' + esc(v) + '</span>' : '<span class="blank">' + esc(placeholder) + '</span>';
+  }
+  function radioVal(name){
+    const el = form.querySelector('input[name="' + name + '"]:checked');
+    return el ? el.value : '';
+  }
+  function fmtDate(iso){
+    if(!iso) return '';
+    const d = new Date(iso + 'T00:00:00');
+    if(isNaN(d)) return iso;
+    return d.toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+  }
+  function money(n){
+    const num = Number(n);
+    if(!n || isNaN(num)) return '';
+    return '$' + num.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }
+
+  // conditional field visibility
+  form.addEventListener('change', (e) => {
+    if(e.target.name === 'tutor'){
+      $('tutorOtherWrap').style.display = e.target.value === 'Other' ? 'block' : 'none';
+    }
+    if(e.target.name === 'format'){
+      const v = radioVal('format');
+      $('locationWrap').style.display = v === 'inPerson' ? 'block' : 'none';
+      $('otherFormatWrap').style.display = v === 'other' ? 'block' : 'none';
+    }
+    if(e.target.name === 'pricing'){
+      const v = radioVal('pricing');
+      $('hourlyWrap').style.display = v === 'hourly' ? 'block' : 'none';
+      $('packageWrap').style.display = v === 'package' ? 'block' : 'none';
+    }
+  });
+
+  // default effective date = today
+  $('effDate').value = new Date().toISOString().slice(0,10);
+
+  const REQUIRED_IDS = ['clientName','subject'];
+  function computeProgress(){
+    let total = 10, done = 0;
+    if(radioVal('tutor') === 'Other' ? $('tutorOther').value.trim() : radioVal('tutor')) done++;
+    if($('clientName').value.trim()) done++;
+    if($('effDate').value) done++;
+    if($('subject').value.trim()) done++;
+    const fmt = radioVal('format');
+    if(fmt === 'inPerson') done += $('location').value.trim() ? 1 : 0;
+    else if(fmt === 'other') done += $('otherFormat').value.trim() ? 1 : 0;
+    else done += 1; // standard (Zoom/async) needs no extra field
+    const pricing = radioVal('pricing');
+    if(pricing === 'hourly'){ if($('hourlyRate').value) done++; }
+    else { if($('pkgSessions').value && $('pkgPrice').value) done++; }
+    done += 2; // format-selected, pricing-selected baseline (always chosen, radios default)
+    total = 8;
+    done = Math.min(done, total);
+    const pct = Math.round((done/total) * 100);
+    $('progressBar').style.width = pct + '%';
+    $('progressLabel').textContent = pct + '%';
+    $('progressStatus').textContent = done + ' / ' + total + ' fields complete';
+  }
+
+  function companyLine(){
+    return $('llcApproved').checked
+      ? 'Palisade Tutoring LLC, a New York limited liability company ("Company")'
+      : 'Palisade Tutoring LLC (LLC formation pending; operating in the interim as a sole proprietorship) ("Company")';
+  }
+
+  function tutorName(){
+    return radioVal('tutor') === 'Other' ? $('tutorOther').value.trim() : radioVal('tutor');
+  }
+
+  function formatSentence(){
+    const v = radioVal('format');
+    if(v === 'inPerson') return 'Sessions are conducted in person at ' + f($('location').value, '[location to be specified]') + '.';
+    if(v === 'other') return f($('otherFormat').value, '[arrangement to be specified]') + '.';
+    return 'Sessions are conducted over Zoom, or asynchronously via Google Docs or a similar shared-document platform, unless otherwise specified in this Agreement.';
+  }
+
+  function pricingBlock(){
+    const v = radioVal('pricing');
+    if(v === 'hourly'){
+      const rate = $('hourlyRate').value;
+      return '<p><strong>Rate:</strong> ' + f(rate ? money(rate) + ' per hour' : '', '[rate]') +
+        '. Client will be billed by session. Other than the first session, which is due upfront per above, payment ' +
+        'for each session is due via Venmo or Zelle within 48 hours of that session.</p>';
+    }
+    const tier = radioVal('tier');
+    const sessions = $('pkgSessions').value;
+    const price = $('pkgPrice').value;
+    const includes = $('pkgIncludes').value.trim();
+    let out = '<p><strong>Package:</strong> ' + esc(tier) + ' &mdash; ' +
+      f(sessions ? sessions + ' session' + (Number(sessions) === 1 ? '' : 's') : '', '[# of sessions]') +
+      ' for ' + f(price ? money(price) : '', '[total price]') + '.</p>';
+    if(includes) out += '<p><strong>Includes:</strong> ' + esc(includes) + '.</p>';
+    out += '<p>Package fees are due in full, upfront, before the first session in the package. Packages are non-refundable once sessions have begun, but unused sessions may be rescheduled per the cancellation policy below.</p>';
+    return out;
+  }
+
+  function invoiceNumber(){
+    const iso = $('effDate').value ? $('effDate').value.replace(/-/g, '') : '00000000';
+    const tier = radioVal('tier') || 'X';
+    return 'PT-' + iso + '-' + tier.charAt(0).toUpperCase();
+  }
+
+  function invoiceBlock(){
+    if(radioVal('pricing') !== 'package') return '';
+    const tier = radioVal('tier');
+    const sessions = $('pkgSessions').value;
+    const price = $('pkgPrice').value;
+    const client = $('clientName').value.trim();
+    const student = $('studentName').value.trim();
+    return `
+      <div class="invoice">
+        <div class="invhead">
+          <h4>Invoice</h4>
+          <span class="invno">No. ${esc(invoiceNumber())} &nbsp;&middot;&nbsp; ${esc(fmtDate($('effDate').value) || '[effective date]')}</span>
+        </div>
+        <div class="invrow"><span>Bill to</span><span>${f(client, '[client / parent or guardian name]')}${student ? ' (for ' + esc(student) + ')' : ''}</span></div>
+        <div class="invrow"><span>From</span><span>${companyLine().replace(/ \("Company"\)$/,'')}</span></div>
+        <div class="invrow"><span>Payment due</span><span>Upfront, before the first session</span></div>
+        <div class="invrow"><span>Payment methods</span><span>Venmo, Zelle, or bank transfer</span></div>
+        <div class="invline">
+          <span>${esc(tier)} package &mdash; ${sessions ? esc(sessions) + ' session' + (Number(sessions) === 1 ? '' : 's') : '[# of sessions]'}</span>
+          <span class="invnum">${price ? money(price) : '[total price]'}</span>
+        </div>
+        <div class="invtotal"><span>Total due</span><span class="invnum">${price ? money(price) : '[total price]'}</span></div>
+        <p class="invfee">Client is responsible for any credit card processing fees, foreign transaction fees, or
+        bank/wire transfer fees incurred in sending payment. The amount received by ${companyLine().replace(/ \("Company"\)$/,'')}
+        must equal the Total Due above, net of any such fees.</p>
+      </div>
+    `;
+  }
+
+  function cancellationBlock(){
+    const pricing = radioVal('pricing');
+    let base = '<p>Either party must give at least 48 hours\' notice to cancel or reschedule a scheduled session. This requirement applies equally to Tutor and to Client &mdash; the same 48-hour standard governs cancellations on both sides.</p>';
+    let clientSide, tutorSide;
+    if(pricing === 'package'){
+      clientSide = '<li>If <strong>Client</strong> cancels with less than 48 hours\' notice, the session is deducted from the package as used, except in cases of illness or genuine emergency, which will be handled on a case-by-case basis.</li>';
+      tutorSide = '<li>If <strong>Tutor</strong> cancels with less than 48 hours\' notice for reasons other than illness or emergency, the session is not deducted from the package and will be rescheduled at no additional cost.</li>';
+    } else {
+      clientSide = '<li>If <strong>Client</strong> cancels with less than 48 hours\' notice, the session is billed in full, except in cases of illness or genuine emergency, which will be handled on a case-by-case basis.</li>';
+      tutorSide = '<li>If <strong>Tutor</strong> cancels with less than 48 hours\' notice for reasons other than illness or emergency, Client will not be billed for that session and, at Client\'s option, will receive a make-up session at no additional cost.</li>';
+    }
+    return base + '<ul>' + clientSide + tutorSide + '</ul>';
+  }
+
+  function render(){
+    computeProgress();
+    const student = $('studentName').value.trim();
+    const notes = $('notes').value.trim();
+
+    const html = `
+      <h2 class="doctitle">${companyLine().replace(/ \("Company"\)$/,'')}</h2>
+      <p class="docsub">Tutoring &amp; Academic Coaching Services Agreement</p>
+
+      <p>This Tutoring &amp; Academic Coaching Services Agreement ("Agreement") is entered into as of
+      ${f(fmtDate($('effDate').value), '[effective date]')}, between ${companyLine()}, acting through
+      ${f(tutorName(), '[tutor name]')} ("Tutor"), and
+      ${f($('clientName').value, '[client / parent or guardian name]')} ("Client")${student ? ', on behalf of ' + f(student, '') : ''}.</p>
+
+      <h3>1. Services</h3>
+      <p>Tutor will provide academic tutoring and/or coaching services in the following subject or focus area:
+      ${f($('subject').value, '[subject / focus area]')}. The specific scope and goals of sessions will be discussed
+      and may be adjusted over time by mutual agreement.</p>
+
+      <h3>2. Session Format &amp; Scheduling</h3>
+      <p>${formatSentence()} Sessions are scheduled by mutual agreement, subject to both parties' availability.
+      A parent or guardian may join any session to observe at any time.</p>
+
+      <h3>3. Pricing &amp; Payment</h3>
+      <p>Payment is due in full before the first session between Tutor and Student takes place, regardless of the
+      pricing structure selected below.</p>
+      ${pricingBlock()}
+      <p>Rates and package prices are subject to change with at least 30 days' written notice to Client for any
+      sessions not yet scheduled or packages not yet purchased.</p>
+      ${invoiceBlock()}
+
+      <h3>4. Cancellation &amp; Rescheduling Policy</h3>
+      ${cancellationBlock()}
+
+      <h3>5. Materials &amp; Preparation</h3>
+      <p>To support the Student's progress, Client agrees to share relevant materials as available, which may
+      include recent writing samples, teacher feedback, diagnostic evaluations or learning plans, and assignment
+      guidelines or rubrics. Tutor will use these materials solely to inform tutoring sessions.</p>
+
+      <h3>6. Confidentiality</h3>
+      <p>Tutor will treat all information about the Student &mdash; including academic records, evaluations, diagnoses,
+      and personal circumstances shared in connection with these services &mdash; as confidential, and will not disclose
+      such information to third parties without Client's consent, except as required by law or to protect the
+      Student's safety.</p>
+
+      <h3>7. Client Rights</h3>
+      <ul>
+        <li>The right to receive services performed with reasonable care and professional good faith.</li>
+        <li>The right for a parent or guardian to join any session to observe, at any time.</li>
+        <li>The right to the confidentiality described in Section 6 above.</li>
+        <li>The right to the same 48-hour cancellation standard from Tutor that Client is held to (Section 4) &mdash; this
+        obligation is mutual, not one-sided.</li>
+        <li>The right to terminate this Agreement at any time, as described in Section 10.</li>
+        <li>The right to an itemized accounting of sessions completed and fees paid, upon request.</li>
+        <li>The right to at least 30 days' notice before any rate or package-price change affects future sessions.</li>
+        <li>The right to request that any materials shared under Section 5 be returned or deleted once the
+        engagement ends.</li>
+      </ul>
+
+      <h3>8. Independent Contractor</h3>
+      <p>Tutor provides services as an independent contractor and not as an employee, agent, or partner of Client.
+      Tutor is responsible for their own taxes and does not provide services through, or on behalf of, any school or
+      educational institution unless separately agreed in writing.</p>
+
+      <h3>9. No Guarantee of Results</h3>
+      <p>Tutor will make good-faith, professional efforts to support the Student's academic growth. Tutor does not
+      guarantee specific grades, test scores, admissions outcomes, or other results, as these depend on many factors
+      outside Tutor's control.</p>
+
+      <h3>10. Termination</h3>
+      <p>Either party may terminate this Agreement at any time with written notice (email is sufficient). Client
+      remains responsible for payment of all sessions completed, and any package fees earned, prior to
+      termination.</p>
+
+      <h3>11. Limitation of Liability</h3>
+      <p>Company's and Tutor's liability under this Agreement is limited to the amount of fees paid by Client for
+      the services giving rise to the claim. Neither is liable for indirect, incidental, or consequential
+      damages.</p>
+
+      <h3>12. Governing Law</h3>
+      <p>This Agreement is governed by the laws of the State of New York, without regard to its conflict-of-law
+      principles.</p>
+
+      <h3>13. Additional Terms</h3>
+      <p>${notes ? esc(notes) : '<span class="blank">None specified for this engagement.</span>'}</p>
+
+      <h3>14. Entire Agreement</h3>
+      <p>This Agreement constitutes the entire understanding between the parties regarding tutoring services and
+      supersedes any prior oral or written agreements on the subject. Any changes must be made in writing and
+      signed, or agreed via email, by both parties.</p>
+
+      <hr class="rule">
+      <h3>Signatures</h3>
+      <div class="sigblock">
+        <div class="sigimgwrap">${TUTOR_SIGNATURE_DATA_URI ? '<img src="' + TUTOR_SIGNATURE_DATA_URI + '" alt="Tutor signature">' : '<span class="pending">[signature image not yet added]</span>'}</div>
+        <div class="sigline">For ${companyLine().replace(/ \("Company"\)$/,'')}, by ${f(tutorName(), '[tutor name]')} (Tutor)</div>
+        <p class="sigmeta">Print name: <strong>${f(tutorName(), '[tutor name]')}</strong>&nbsp;&nbsp;&nbsp;&nbsp;Date: <strong>${f(fmtDate($('effDate').value), '[date]')}</strong></p>
+
+        <div class="sigline client">${f($('clientName').value, '[client / parent or guardian name]')} (Client)</div>
+        <p class="sigmeta">Print name: _______________________________&nbsp;&nbsp;&nbsp;&nbsp;Date: ______________</p>
+      </div>
+
+      <p class="disclaimer">This is a general-purpose template, not legal advice. Consider having a licensed New
+      York attorney review it before use &mdash; particularly once the LLC formation is confirmed.</p>
+    `;
+    $('preview').innerHTML = html;
+  }
+
+  form.addEventListener('input', render);
+  form.addEventListener('change', render);
+  render();
+
+  // toolbar actions
+  $('printBtn').addEventListener('click', () => window.print());
+  $('resetBtn').addEventListener('click', () => {
+    form.reset();
+    $('effDate').value = new Date().toISOString().slice(0,10);
+    $('tutorOtherWrap').style.display = 'none';
+    $('locationWrap').style.display = 'none';
+    $('otherFormatWrap').style.display = 'none';
+    $('hourlyWrap').style.display = 'block';
+    $('packageWrap').style.display = 'none';
+    render();
+  });
+  $('copyBtn').addEventListener('click', async () => {
+    const text = $('preview').innerText;
+    try{
+      await navigator.clipboard.writeText(text);
+      $('copiedMsg').style.display = 'inline';
+      setTimeout(() => { $('copiedMsg').style.display = 'none'; }, 1800);
+    }catch(e){
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); }catch(_){}
+      document.body.removeChild(ta);
+      $('copiedMsg').style.display = 'inline';
+      setTimeout(() => { $('copiedMsg').style.display = 'none'; }, 1800);
+    }
+  });
+
+  // mobile tabs
+  const tabForm = $('tabFormBtn'), tabPreview = $('tabPreviewBtn');
+  function setTab(t){
+    document.body.classList.toggle('tab-form', t === 'form');
+    document.body.classList.toggle('tab-preview', t === 'preview');
+    tabForm.classList.toggle('active', t === 'form');
+    tabPreview.classList.toggle('active', t === 'preview');
+  }
+  tabForm.addEventListener('click', () => setTab('form'));
+  tabPreview.addEventListener('click', () => setTab('preview'));
+  setTab('form');
+})();
+</script>
+
+</body>
+</html>
