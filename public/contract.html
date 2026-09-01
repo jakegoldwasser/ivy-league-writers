@@ -133,10 +133,11 @@
 
   @media print{
     .mobileTabs, .formPane, header.top .status, .toolbar{ display:none !important; }
+    .previewPane{ display:block !important; }
     body, .page{ background:#fff; padding:0; margin:0; }
-    .workspace{ display:block; }
+    .workspace{ display:block !important; }
     .cliffline{ display:none; }
-    .preview{ box-shadow:none; border:none; padding:0; max-width:none; }
+    .preview{ display:block !important; box-shadow:none; border:none; padding:0; max-width:none; }
     @page{ margin:0.75in; }
   }
 </style>
@@ -254,13 +255,17 @@
             </div>
             <div class="subrow" style="margin-top:10px;">
               <div class="field">
-                <label class="lbl" for="pkgSessions">Sessions included</label>
+                <label class="lbl" for="pkgSessions">Virtual sessions included <span class="hint">(optional)</span></label>
                 <input type="number" id="pkgSessions" min="1" step="1" placeholder="e.g. 8">
               </div>
               <div class="field">
-                <label class="lbl" for="pkgPrice">Total price ($)</label>
-                <input type="number" id="pkgPrice" min="0" step="10" placeholder="e.g. 2200">
+                <label class="lbl" for="pkgAsyncCycles">Async feedback cycles <span class="hint">(optional)</span></label>
+                <input type="number" id="pkgAsyncCycles" min="1" step="1" placeholder="e.g. 3">
               </div>
+            </div>
+            <div class="field">
+              <label class="lbl" for="pkgPrice">Total price ($)</label>
+              <input type="number" id="pkgPrice" min="0" step="10" placeholder="e.g. 2200">
             </div>
             <div class="field">
               <label class="lbl" for="pkgIncludes">What's included <span class="hint">(optional)</span></label>
@@ -361,7 +366,7 @@
     else done += 1; // standard (Zoom/async) needs no extra field
     const pricing = radioVal('pricing');
     if(pricing === 'hourly'){ if($('hourlyRate').value) done++; }
-    else { if($('pkgSessions').value && $('pkgPrice').value) done++; }
+    else { if($('pkgPrice').value && ($('pkgSessions').value || $('pkgAsyncCycles').value)) done++; }
     done += 2; // format-selected, pricing-selected baseline (always chosen, radios default)
     total = 8;
     done = Math.min(done, total);
@@ -388,6 +393,15 @@
     return 'Sessions are conducted over Zoom, or asynchronously via Google Docs or a similar shared-document platform, unless otherwise specified in this Agreement.';
   }
 
+  function packageSessionsText(){
+    const parts = [];
+    const sessions = $('pkgSessions').value;
+    const cycles = $('pkgAsyncCycles').value;
+    if(sessions) parts.push(esc(sessions) + ' virtual session' + (Number(sessions) === 1 ? '' : 's'));
+    if(cycles) parts.push(esc(cycles) + ' asynchronous feedback cycle' + (Number(cycles) === 1 ? '' : 's'));
+    return parts.join(' and ');
+  }
+
   function pricingBlock(){
     const v = radioVal('pricing');
     if(v === 'hourly'){
@@ -397,11 +411,10 @@
         'for each session is due via Venmo or Zelle within 48 hours of that session.</p>';
     }
     const tier = radioVal('tier');
-    const sessions = $('pkgSessions').value;
     const price = $('pkgPrice').value;
     const includes = $('pkgIncludes').value.trim();
-    let out = '<p><strong>Package:</strong> ' + esc(tier) + ' &mdash; ' +
-      f(sessions ? sessions + ' session' + (Number(sessions) === 1 ? '' : 's') : '', '[# of sessions]') +
+    const sessionsText = packageSessionsText();
+    let out = '<p><strong>Package:</strong> ' + esc(tier) + (sessionsText ? ' &mdash; ' + sessionsText : '') +
       ' for ' + f(price ? money(price) : '', '[total price]') + '.</p>';
     if(includes) out += '<p><strong>Includes:</strong> ' + esc(includes) + '.</p>';
     out += '<p>Package fees are due in full, upfront, before the first session in the package. Packages are non-refundable once sessions have begun, but unused sessions may be rescheduled per the cancellation policy below.</p>';
@@ -422,9 +435,9 @@
     let lineLabel, amount, dueText;
     if(pricing === 'package'){
       const tier = radioVal('tier');
-      const sessions = $('pkgSessions').value;
       const price = $('pkgPrice').value;
-      lineLabel = esc(tier) + ' package &mdash; ' + (sessions ? esc(sessions) + ' session' + (Number(sessions) === 1 ? '' : 's') : '[# of sessions]');
+      const sessionsText = packageSessionsText();
+      lineLabel = esc(tier) + ' package' + (sessionsText ? ' &mdash; ' + sessionsText : '');
       amount = price ? money(price) : '[total price]';
       dueText = 'Upfront, before the first session';
     } else {
@@ -507,6 +520,9 @@
       <p>Tutor will provide academic tutoring and/or coaching services in the following subject or focus area:
       ${f($('subject').value, '[subject / focus area]')}. The specific scope and goals of sessions will be discussed
       and may be adjusted over time by mutual agreement.</p>
+      <p>Tutor will, under no circumstances, compose text on the Student's behalf. All essays and other written work
+      must be the Student's own, and must comply with all relevant academic integrity and ethical guidelines,
+      including those of the Student's school and any college admissions process.</p>
 
       <h3>2. Session Format &amp; Scheduling</h3>
       <p>${formatSentence()} Sessions are scheduled by mutual agreement, subject to both parties' availability.
