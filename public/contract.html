@@ -102,8 +102,8 @@
   .invoice .invnum{ font-family:'IBM Plex Mono'; font-variant-numeric:tabular-nums; }
   .invoice .invfee{ font-size:11.5px; color:var(--ink-soft); font-style:italic; margin-top:12px; line-height:1.55; }
   .sigblock{ margin-top:8px; }
-  .sigimgwrap{ height:52px; display:flex; align-items:flex-end; margin-top:28px; }
-  .sigimgwrap img{ height:46px; display:block; }
+  .sigimgwrap{ height:104px; display:flex; align-items:flex-end; margin-top:28px; }
+  .sigimgwrap img{ height:92px; display:block; }
   .sigimgwrap .pending{ font-family:'IBM Plex Sans'; font-size:11px; color:var(--blank); font-style:italic; border:1px dashed var(--blank); border-radius:6px; padding:6px 10px; }
   .sigline{ border-top:1px solid var(--ink); margin-top:4px; padding-top:6px; font-family:'IBM Plex Sans'; font-size:11.5px; color:var(--ink-soft); }
   .sigline.client{ margin-top:38px; }
@@ -138,8 +138,9 @@
     .invoice .invline{ font-size:11px; padding:5px 0; margin-top:5px; }
     .invoice .invtotal{ font-size:12px; padding-top:6px; margin-top:5px; }
     .invoice .invfee{ font-size:9.5px; margin-top:6px; line-height:1.3; }
-    .sigimgwrap{ height:40px; margin-top:16px; }
-    .sigimgwrap img{ height:34px; }
+    .sigimgwrap{ height:80px; margin-top:16px; }
+    .sigimgwrap img{ height:68px; }
+    .invoice-appendix{ break-before: page; }
     .sigline{ margin-top:2px; padding-top:3px; font-size:10px; }
     .sigline.client{ margin-top:22px; }
     .sigmeta{ font-size:10.5px; margin-top:8px; }
@@ -493,6 +494,7 @@
     }
     const student = $('studentName').value.trim();
     const notes = $('notes').value.trim();
+    const invHtml = invoiceBlock();
 
     const html = `
       <h2 class="doctitle">${companyLine().replace(/ \("Company"\)$/,'')}</h2>
@@ -521,7 +523,6 @@
       ${pricingBlock()}
       <p>Rates and package prices are subject to change with at least 30 days' written notice to Client for any
       sessions not yet scheduled or packages not yet purchased.</p>
-      ${invoiceBlock()}
 
       <h3>4. Cancellation &amp; Rescheduling Policy</h3>
       ${cancellationBlock()}
@@ -579,6 +580,7 @@
       <p>This Agreement constitutes the entire understanding between the parties regarding tutoring services and
       supersedes any prior oral or written agreements on the subject. Any changes must be made in writing and
       signed, or agreed via email, by both parties.</p>
+      ${invHtml ? '<div class="invoice-appendix">' + invHtml + '</div>' : ''}
 
       <hr class="rule">
       <h3>Signatures</h3>
