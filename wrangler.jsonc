@@ -1,0 +1,11 @@
+{
+  "name": "palisade-writers",
+  "compatibility_date": "2026-09-01",
+  "assets": {
+    "directory": "./public"
+  },
+  "routes": [
+    { "pattern": "palisadewriters.com", "custom_domain": true },
+    { "pattern": "www.palisadewriters.com", "custom_domain": true }
+  ]
+}
