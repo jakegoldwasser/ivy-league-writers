@@ -596,10 +596,10 @@
       <div class="sigblock">
         <div class="sigimgwrap">${TUTOR_SIGNATURE_DATA_URI ? '<img src="' + TUTOR_SIGNATURE_DATA_URI + '" alt="Tutor signature">' : '<span class="pending">[signature image not yet added]</span>'}</div>
         <div class="sigline">For ${companyLine().replace(/ \("Company"\)$/,'')}, by ${f(tutorName(), '[tutor name]')} (Tutor)</div>
-        <p class="sigmeta">Print name: <strong>${f(tutorName(), '[tutor name]')}</strong>&nbsp;&nbsp;&nbsp;&nbsp;Date: <strong>${f(fmtDate($('effDate').value), '[date]')}</strong></p>
+        <p class="sigmeta"><strong>${f(tutorName(), '[tutor name]')}</strong>&nbsp;&nbsp;&nbsp;&nbsp;Date: <strong>${f(fmtDate($('effDate').value), '[date]')}</strong></p>
 
         <div class="sigline client">${f($('clientName').value, '[client / parent or guardian name]')} (Client)</div>
-        <p class="sigmeta">Print name: _______________________________&nbsp;&nbsp;&nbsp;&nbsp;Date: ______________</p>
+        <p class="sigmeta">Date: ______________</p>
       </div>
       ${invHtml ? '<div class="invoice-appendix">' + invHtml + '</div>' : ''}
     `;
