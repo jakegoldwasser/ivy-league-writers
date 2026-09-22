@@ -1,8 +1,25 @@
 {
   "name": "palisade-writers",
+  "main": "src/worker.js",
   "compatibility_date": "2026-09-01",
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "palisade-portal",
+      "database_id": "7d129f79-7e1f-4f52-b42c-93a39cc0b621",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "vars": {
+    // OAuth Web client ID from Google Cloud Console (public, not a secret).
+    "GOOGLE_CLIENT_ID": "",
+    // Comma-separated. These people get founder access on first sign-in;
+    // everyone else must be added from /invoice → People.
+    "FOUNDER_EMAILS": "jake.goldwasser@gmail.com"
   },
   "routes": [
     { "pattern": "palisadewriters.com", "custom_domain": true },

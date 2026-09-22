@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="description" content="Palisade Writers founder portal: sessions, payroll, and client invoices." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%A7%BE</text></svg>" />
+<title>Palisade Founder Portal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/portal.css">
+<style>
+  .filters{ display:grid; grid-template-columns:auto repeat(3, minmax(140px, 1fr)) auto; gap:10px; align-items:end; }
+  @media (max-width:900px){ .filters{ grid-template-columns:1fr 1fr; } }
+  .monthpick{ display:flex; gap:6px; align-items:center; }
+  .monthpick input{ width:170px; }
+  td input.rate{ width:86px; text-align:right; }
+  td input.desc{ min-width:200px; }
+  .builder{ display:grid; grid-template-columns:minmax(0, 1.1fr) minmax(320px, .9fr); gap:20px; align-items:start; }
+  @media (max-width:1000px){ .builder{ grid-template-columns:1fr; } }
+  .clientEdit{ background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:12px; }
+  .inactive td{ opacity:.55; }
+
+  /* Invoice document — mirrors the invoice block on /contract */
+  .doc{ background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:36px 40px; font-family:'Source Serif 4', Georgia, serif; }
+  .doc .doctitle{ font-size:22px; font-weight:700; margin:0 0 2px; }
+  .doc .docsub{ font:500 12px 'IBM Plex Sans'; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); margin:0 0 20px; }
+  .invoice{ border:1.5px solid var(--ink); border-radius:10px; padding:20px 22px; background:var(--surface-2); font-family:'IBM Plex Sans'; }
+  .invoice .invhead{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:12px; }
+  .invoice .invhead h4{ margin:0; font-size:15px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent-ink); }
+  .invoice .invno{ font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--ink-soft); }
+  .invoice .invrow{ display:flex; justify-content:space-between; gap:16px; font-size:13px; margin-bottom:6px; }
+  .invoice .invrow span:first-child{ color:var(--ink-soft); }
+  .invoice .invrow span:last-child{ text-align:right; }
+  .invoice table{ margin-top:12px; font-size:12.5px; }
+  .invoice th{ padding:6px 4px; border-bottom:1px solid var(--border); }
+  .invoice td{ padding:6px 4px; border-bottom:1px dashed var(--border); }
+  .invoice .invtotal{ display:flex; justify-content:space-between; gap:16px; font-size:15px; font-weight:700; padding-top:10px; border-top:1.5px solid var(--ink); margin-top:8px; }
+  .invoice .invnum{ font-family:'IBM Plex Mono'; font-variant-numeric:tabular-nums; }
+  .invoice .invfee{ font-size:11.5px; color:var(--ink-soft); font-style:italic; margin-top:12px; line-height:1.55; }
+  .invoice .invnote{ font-size:12.5px; margin-top:10px; }
+  .doc .disclaimer{ margin-top:22px; font:italic 11.5px 'IBM Plex Sans'; color:var(--ink-soft); }
+
+  @media print{
+    body{ background:#fff; }
+    body > *:not(#printArea){ display:none !important; }
+    #printArea{ display:block !important; }
+    #printArea .doc{ border:none; box-shadow:none; padding:0; }
+    @page{ margin:0.6in; }
+  }
+  #printArea{ display:none; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">Palisade Writers<small>Founder portal</small></a>
+  <div class="who" id="who" hidden>
+    <span id="whoName"></span>
+    <a href="/timesheet" class="btn btn-sm">My timesheet</a>
+    <button class="btn btn-sm" id="signOutBtn">Sign out</button>
+  </div>
+</header>
+
+<div class="gate card" id="gate" hidden>
+  <h2>Founder sign-in</h2>
+  <p>Sessions, payroll and client invoices. Founders only.</p>
+  <div id="gsiButton"></div>
+  <p class="error" id="gateMsg" role="alert"></p>
+</div>
+
+<main class="page" id="app" hidden>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="sessions" class="active">Sessions &amp; payroll</button>
+    <button role="tab" data-tab="invoices">Invoices</button>
+    <button role="tab" data-tab="people">Team &amp; clients</button>
+  </nav>
+
+  <!-- ============ SESSIONS ============ -->
+  <section data-panel="sessions">
+    <div class="card">
+      <div class="filters">
+        <div>
+          <label class="lbl" for="fMonth">Month</label>
+          <div class="monthpick">
+            <button class="btn btn-sm" id="fPrev" aria-label="Previous month">&larr;</button>
+            <input type="month" id="fMonth">
+            <button class="btn btn-sm" id="fNext" aria-label="Next month">&rarr;</button>
+          </div>
+        </div>
+        <div><label class="lbl" for="fTutor">Tutor</label><select id="fTutor"></select></div>
+        <div><label class="lbl" for="fClient">Client</label><select id="fClient"></select></div>
+        <div>
+          <label class="lbl" for="fStatus">Status</label>
+          <select id="fStatus">
+            <option value="">All</option>
+            <option value="uninvoiced">Not invoiced yet</option>
+            <option value="invoiced">Invoiced</option>
+          </select>
+        </div>
+        <div><button class="btn" id="csvBtn">Export CSV</button></div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="k">Sessions</div><div class="v" id="sCount">0</div></div>
+      <div class="stat"><div class="k">Hours</div><div class="v" id="sHours">0</div></div>
+      <div class="stat"><div class="k">Tutor pay</div><div class="v" id="sPay">$0</div></div>
+      <div class="stat"><div class="k">Client billing</div><div class="v" id="sBill">$0</div></div>
+      <div class="stat"><div class="k">Margin</div><div class="v" id="sMargin">$0</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Payroll by tutor</h2>
+      <div class="tablewrap"><table id="payrollTable"></table></div>
+      <p class="small muted" id="payrollNote" hidden>Some sessions have no pay rate yet, so they're not counted in pay. Set a default pay rate under Team &amp; clients, or edit the rate on the session below.</p>
+    </div>
+
+    <div class="card">
+      <h2>Sessions</h2>
+      <p class="small muted">Change a session's pay rate in its row. Client billing shows the invoiced rate, or an estimate from the client's default rate if it isn't invoiced yet.</p>
+      <div class="tablewrap"><table id="sessionsTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ INVOICES ============ -->
+  <section data-panel="invoices" hidden>
+    <div class="card">
+      <h2>New invoice</h2>
+      <div class="grid g4">
+        <div><label class="lbl" for="iClient">Client</label><select id="iClient"></select></div>
+        <div><label class="lbl" for="iMonth">Month of sessions</label><input type="month" id="iMonth"></div>
+        <div><label class="lbl" for="iIssued">Invoice date</label><input type="date" id="iIssued"></div>
+        <div><label class="lbl" for="iDue">Payment due</label><input type="text" id="iDue" value="Within 48 hours of this invoice"></div>
+      </div>
+    </div>
+
+    <div class="builder" id="builder" hidden>
+      <div class="card">
+        <h2>Line items</h2>
+        <div class="row" style="margin-bottom:10px;">
+          <label class="lbl" for="iAllRate" style="margin:0;">Set every rate to</label>
+          <input type="number" id="iAllRate" class="compact" min="0" step="5" style="width:110px;" placeholder="$/hr">
+          <button class="btn btn-sm" id="iApplyRate">Apply</button>
+          <span class="spacer"></span>
+          <label class="row small"><input type="checkbox" id="iLlc"> LLC approved</label>
+        </div>
+        <div class="tablewrap"><table id="iLines"></table></div>
+        <h3>Other line items</h3>
+        <div id="iExtras"></div>
+        <button class="btn btn-sm" id="iAddExtra">+ Add line (e.g. materials, discount as a negative number)</button>
+        <h3>Note on invoice <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400;">(optional)</span></h3>
+        <textarea id="iNotes" maxlength="1000" placeholder="e.g. Thank you! Venmo @palisadewriters"></textarea>
+        <div class="row end" style="margin-top:14px;">
+          <button class="btn btn-primary" id="iSave">Save invoice &amp; print</button>
+        </div>
+      </div>
+      <div id="iPreview"></div>
+    </div>
+    <p class="card empty" id="builderEmpty">Choose a client and month to see their sessions that haven't been invoiced yet.</p>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:12px;">
+        <h2 style="margin:0;">Saved invoices</h2>
+        <span class="spacer"></span>
+        <label class="lbl" for="lMonth" style="margin:0;">Month</label>
+        <input type="month" id="lMonth" style="width:170px;">
+        <label class="row small"><input type="checkbox" id="lAll"> All months</label>
+      </div>
+      <div class="tablewrap"><table id="invoiceList"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ PEOPLE ============ -->
+  <section data-panel="people" hidden>
+    <div class="card">
+      <h2>Team</h2>
+      <p class="small muted">Only people listed here can sign in. Tutors see their own sessions and pay, never client rates. Founders see everything.</p>
+      <div class="tablewrap"><table id="teamTable"></table></div>
+      <h3>Add a person</h3>
+      <form id="addPerson" class="grid g4">
+        <div><label class="lbl" for="pEmail">Google email</label><input type="email" id="pEmail" required placeholder="name@gmail.com"></div>
+        <div><label class="lbl" for="pName">Name</label><input type="text" id="pName" placeholder="Full name"></div>
+        <div><label class="lbl" for="pRate">Default pay rate <span class="hint">($/hr)</span></label><input type="number" id="pRate" min="0" step="1"></div>
+        <div><label class="lbl" for="pRole">Role</label>
+          <select id="pRole"><option value="tutor">Tutor</option><option value="founder">Founder</option></select></div>
+        <div class="row"><button class="btn btn-primary">Add person</button></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="row"><h2 style="margin:0;">Clients</h2><span class="spacer"></span><button class="btn btn-primary btn-sm" id="newClientBtn">+ New client</button></div>
+      <div id="clientEditor"></div>
+      <div class="tablewrap" style="margin-top:12px;"><table id="clientTable"></table></div>
+    </div>
+  </section>
+</main>
+
+<div id="printArea"></div>
+
+<script src="/portal.js"></script>
+<script>
+(async function(){
+  const { $, api, esc, money, round2, duration, hours, fmtDate, fmtTime, monthLabel, localISO, thisMonth, shiftMonth, toast } = Portal;
+
+  let ctx;
+  try { ctx = await Portal.requireUser(); }
+  catch(err){ $('gate').hidden = false; $('gateMsg').textContent = err.message; return; }
+  const { me } = ctx;
+  if(me.role !== 'founder'){
+    $('gate').hidden = false;
+    $('gsiButton').innerHTML = '<a class="btn btn-primary" href="/timesheet">Go to your timesheet</a>';
+    $('gateMsg').textContent = 'This page is for founders.';
+    return;
+  }
+  $('who').hidden = false;
+  $('whoName').textContent = me.name || me.email;
+  $('signOutBtn').addEventListener('click', Portal.signOut);
+  $('app').hidden = false;
+
+  let users = [], clients = [];
+  const tutorName = email => { const u = users.find(x => x.email === email); return u ? (u.name || u.email) : email; };
+  const firstName = s => (s || '').split(/\s+/)[0];
+  const storage = {
+    get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v){ try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  // ---------- tabs ----------
+  document.querySelector('.tabs').addEventListener('click', e => {
+    const t = e.target.dataset.tab;
+    if(!t) return;
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === t));
+    document.querySelectorAll('[data-panel]').forEach(p => p.hidden = p.dataset.panel !== t);
+    storage.set('pw.tab', t);
+  });
+
+  async function loadPeople(){
+    [users, clients] = await Promise.all([api('admin/users'), api('admin/clients')]);
+    const tutorOpts = users.map(u => `<option value="${esc(u.email)}">${esc(u.name || u.email)}</option>`).join('');
+    const clientOpts = clients.map(c => `<option value="${c.id}">${esc(c.name)}${c.student ? ' — ' + esc(c.student) : ''}${c.active ? '' : ' (inactive)'}</option>`).join('');
+    const keep = (id, html) => { const v = $(id).value; $(id).innerHTML = html; if([...$(id).options].some(o => o.value === v)) $(id).value = v; };
+    keep('fTutor', '<option value="">All tutors</option>' + tutorOpts);
+    keep('fClient', '<option value="">All clients</option>' + clientOpts);
+    keep('iClient', '<option value="">Choose a client…</option>' + clientOpts);
+    renderTeam();
+    renderClients();
+  }
+
+  // ================= SESSIONS =================
+  let rows = [];
+  $('fMonth').value = thisMonth();
+  $('fPrev').addEventListener('click', () => { $('fMonth').value = shiftMonth($('fMonth').value || thisMonth(), -1); loadSessions(); });
+  $('fNext').addEventListener('click', () => { $('fMonth').value = shiftMonth($('fMonth').value || thisMonth(), 1); loadSessions(); });
+  ['fMonth', 'fTutor', 'fClient', 'fStatus'].forEach(id => $(id).addEventListener('change', loadSessions));
+
+  async function loadSessions(){
+    const p = new URLSearchParams();
+    if($('fMonth').value) p.set('month', $('fMonth').value);
+    if($('fTutor').value) p.set('tutor', $('fTutor').value);
+    if($('fClient').value) p.set('client', $('fClient').value);
+    if($('fStatus').value) p.set('status', $('fStatus').value);
+    try { rows = await api('admin/sessions?' + p); } catch(err){ toast(err.message, true); rows = []; }
+    renderSessions();
+  }
+
+  const payOf = s => s.pay_rate === null ? null : round2(s.pay_rate * s.minutes / 60);
+  const billOf = s => s.bill_rate === null ? null : round2(s.bill_rate * s.minutes / 60);
+
+  function renderSessions(){
+    const sum = (f) => round2(rows.reduce((a, s) => a + (f(s) || 0), 0));
+    const mins = rows.reduce((a, s) => a + s.minutes, 0);
+    const pay = sum(payOf), bill = sum(billOf);
+    $('sCount').textContent = rows.length;
+    $('sHours').textContent = hours(mins);
+    $('sPay').textContent = money(pay);
+    $('sBill').textContent = money(bill);
+    $('sMargin').textContent = money(round2(bill - pay));
+
+    // payroll
+    const byTutor = new Map();
+    for(const s of rows){
+      const t = byTutor.get(s.tutor_email) || { name: s.tutor_name || s.tutor_email, n: 0, mins: 0, pay: 0, missing: 0 };
+      t.n++; t.mins += s.minutes;
+      if(s.pay_rate === null) t.missing++; else t.pay += payOf(s);
+      byTutor.set(s.tutor_email, t);
+    }
+    $('payrollNote').hidden = ![...byTutor.values()].some(t => t.missing);
+    $('payrollTable').innerHTML = byTutor.size ? `
+      <thead><tr><th>Tutor</th><th class="num">Sessions</th><th class="num">Hours</th><th class="num">Pay owed</th></tr></thead>
+      <tbody>${[...byTutor.values()].map(t => `<tr>
+        <td>${esc(t.name)}${t.missing ? ` <span class="pill warn">${t.missing} without rate</span>` : ''}</td>
+        <td class="num">${t.n}</td><td class="num">${hours(t.mins)}</td><td class="num">${money(round2(t.pay))}</td></tr>`).join('')}
+      </tbody>` : '<tbody><tr><td class="empty">No sessions match these filters.</td></tr></tbody>';
+
+    $('sessionsTable').innerHTML = rows.length ? `
+      <thead><tr><th>Date</th><th>Tutor</th><th>Client</th><th class="num">Length</th><th>Type &amp; notes</th>
+        <th class="num">Pay $/hr</th><th class="num">Pay</th><th class="num">Bill $/hr</th><th class="num">Billing</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows.map(s => `<tr>
+        <td style="white-space:nowrap">${esc(fmtDate(s.date))}${s.start_time ? '<br><span class="muted small">' + esc(fmtTime(s.start_time)) + '</span>' : ''}</td>
+        <td>${esc(s.tutor_name || s.tutor_email)}</td>
+        <td>${esc(s.client_name)}${s.student ? '<br><span class="muted small">' + esc(s.student) + '</span>' : ''}</td>
+        <td class="num">${esc(duration(s.minutes))}</td>
+        <td>${esc(s.service)}${s.notes ? '<div class="notes">' + esc(s.notes) + '</div>' : ''}</td>
+        <td class="num"><input type="number" class="rate compact" min="0" step="1" value="${s.pay_rate ?? ''}" data-payrate="${s.id}" aria-label="Pay rate"></td>
+        <td class="num">${money(payOf(s))}</td>
+        <td class="num">${s.bill_rate !== null ? money(s.bill_rate) : '—'}${s.invoice_id ? '' : '<br><span class="muted small">est.</span>'}</td>
+        <td class="num">${money(billOf(s))}</td>
+        <td>${s.invoice_id ? `<span class="pill ok">${esc(s.invoice_number)}</span>` : '<span class="pill">Not invoiced</span>'}</td>
+        <td>${s.invoice_id ? '' : `<button class="btn btn-sm btn-danger" data-delsession="${s.id}" aria-label="Delete session">✕</button>`}</td>
+      </tr>`).join('')}</tbody>` : '<tbody><tr><td class="empty">No sessions match these filters.</td></tr></tbody>';
+  }
+
+  $('sessionsTable').addEventListener('wheel', e => { if(e.target.matches('input[type=number]')) e.target.blur(); }, { passive: true });
+  $('sessionsTable').addEventListener('change', async e => {
+    const id = e.target.dataset.payrate;
+    if(!id) return;
+    const s = rows.find(x => x.id === Number(id));
+    try {
+      await api('admin/sessions/' + id, { method: 'PUT', body: {
+        client_id: s.client_id, date: s.date, start_time: s.start_time, minutes: s.minutes,
+        service: s.service, notes: s.notes, pay_rate: e.target.value === '' ? null : Number(e.target.value),
+      }});
+      toast('Pay rate saved');
+      await loadSessions();
+    } catch(err){ toast(err.message, true); }
+  });
+  $('sessionsTable').addEventListener('click', async e => {
+    const id = e.target.dataset.delsession;
+    if(!id) return;
+    const s = rows.find(x => x.id === Number(id));
+    if(!confirm(`Delete ${s.tutor_name || s.tutor_email}'s ${fmtDate(s.date)} session with ${s.client_name}?`)) return;
+    try { await api('admin/sessions/' + id, { method: 'DELETE' }); toast('Session deleted'); await loadSessions(); }
+    catch(err){ toast(err.message, true); }
+  });
+
+  $('csvBtn').addEventListener('click', () => {
+    const cell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const head = ['Date', 'Start', 'Tutor', 'Tutor email', 'Client', 'Student', 'Minutes', 'Hours', 'Type', 'Notes',
+      'Pay rate', 'Pay', 'Bill rate', 'Billing', 'Invoice'];
+    const lines = [head, ...rows.map(s => [s.date, s.start_time, s.tutor_name, s.tutor_email, s.client_name, s.student,
+      s.minutes, round2(s.minutes / 60), s.service, s.notes, s.pay_rate, payOf(s), s.bill_rate, billOf(s), s.invoice_number || ''])];
+    const blob = new Blob([lines.map(r => r.map(cell).join(',')).join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'palisade-sessions-' + ($('fMonth').value || 'all') + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  // ================= INVOICE BUILDER =================
+  let draftLines = [];   // { session, include, rate, description }
+  let extras = [];       // { description, amount }
+  $('iMonth').value = shiftMonth(thisMonth(), 0);
+  $('iIssued').value = localISO();
+  $('iLlc').checked = storage.get('pw.llc') === '1';
+  $('iLlc').addEventListener('change', () => { storage.set('pw.llc', $('iLlc').checked ? '1' : '0'); renderPreview(); });
+  ['iClient', 'iMonth'].forEach(id => $(id).addEventListener('change', loadBuilder));
+  ['iIssued', 'iDue', 'iNotes'].forEach(id => $(id).addEventListener('input', renderPreview));
+
+  async function loadBuilder(){
+    const clientId = $('iClient').value, month = $('iMonth').value;
+    draftLines = []; extras = [];
+    if(!clientId || !month){ $('builder').hidden = true; $('builderEmpty').hidden = false; return; }
+    let sessions = [];
+    try { sessions = await api(`admin/sessions?month=${month}&client=${clientId}&status=uninvoiced`); }
+    catch(err){ toast(err.message, true); }
+    draftLines = sessions.map(s => ({
+      session: s, include: true, rate: s.bill_rate,
+      description: (s.service || 'Tutoring session') + ' with ' + firstName(s.tutor_name || s.tutor_email),
+    }));
+    $('builder').hidden = false;
+    $('builderEmpty').hidden = true;
+    renderBuilder();
+  }
+
+  const lineAmount = l => (l.rate === null || l.rate === '' || isNaN(l.rate)) ? null : round2(Number(l.rate) * l.session.minutes / 60);
+
+  function renderBuilder(){
+    $('iLines').innerHTML = draftLines.length ? `
+      <thead><tr><th></th><th>Date</th><th>Description</th><th class="num">Length</th><th class="num">$/hr</th><th class="num">Amount</th></tr></thead>
+      <tbody>${draftLines.map((l, i) => `<tr>
+        <td><input type="checkbox" data-inc="${i}" ${l.include ? 'checked' : ''} aria-label="Include"></td>
+        <td style="white-space:nowrap">${esc(fmtDate(l.session.date))}</td>
+        <td><input type="text" class="desc compact" data-desc="${i}" value="${esc(l.description)}" maxlength="200"></td>
+        <td class="num">${esc(duration(l.session.minutes))}</td>
+        <td class="num"><input type="number" class="rate compact" min="0" step="5" data-rate="${i}" value="${l.rate ?? ''}" aria-label="Rate"></td>
+        <td class="num" data-amt="${i}">${money(lineAmount(l))}</td>
+      </tr>`).join('')}</tbody>`
+      : `<tbody><tr><td class="empty">No uninvoiced sessions for this client in ${esc(monthLabel($('iMonth').value))}. You can still add line items below.</td></tr></tbody>`;
+    renderExtras();
+    renderPreview();
+  }
+
+  function renderExtras(){
+    $('iExtras').innerHTML = extras.map((x, i) => `
+      <div class="row" style="margin-bottom:8px;">
+        <input type="text" class="compact" style="flex:1;min-width:180px;" data-xdesc="${i}" value="${esc(x.description)}" placeholder="Description" maxlength="200">
+        <input type="number" class="compact" style="width:120px;" data-xamt="${i}" value="${x.amount}" step="0.01" placeholder="Amount">
+        <button class="btn btn-sm btn-danger" data-xdel="${i}" aria-label="Remove line">✕</button>
+      </div>`).join('');
+  }
+
+  $('iLines').addEventListener('wheel', e => { if(e.target.matches('input[type=number]')) e.target.blur(); }, { passive: true });
+  $('iLines').addEventListener('input', e => {
+    const d = e.target.dataset;
+    if(d.inc !== undefined) draftLines[d.inc].include = e.target.checked;
+    if(d.desc !== undefined) draftLines[d.desc].description = e.target.value;
+    if(d.rate !== undefined){
+      draftLines[d.rate].rate = e.target.value === '' ? null : Number(e.target.value);
+      document.querySelector(`[data-amt="${d.rate}"]`).textContent = money(lineAmount(draftLines[d.rate]));
+    }
+    renderPreview();
+  });
+  $('iApplyRate').addEventListener('click', () => {
+    const v = $('iAllRate').value;
+    if(v === '') return;
+    draftLines.forEach(l => l.rate = Number(v));
+    renderBuilder();
+  });
+  $('iAddExtra').addEventListener('click', () => { extras.push({ description: '', amount: '' }); renderExtras(); });
+  $('iExtras').addEventListener('input', e => {
+    const d = e.target.dataset;
+    if(d.xdesc !== undefined) extras[d.xdesc].description = e.target.value;
+    if(d.xamt !== undefined) extras[d.xamt].amount = e.target.value;
+    renderPreview();
+  });
+  $('iExtras').addEventListener('click', e => {
+    const i = e.target.dataset.xdel;
+    if(i === undefined) return;
+    extras.splice(Number(i), 1);
+    renderExtras(); renderPreview();
+  });
+
+  // Builds the invoice document, shared by the live preview and saved invoices.
+  function invoiceDoc(inv){
+    const lineRows = inv.lines.map(l => `<tr>
+      <td style="white-space:nowrap">${l.date ? esc(fmtDate(l.date, { month: 'short', day: 'numeric' })) : ''}</td>
+      <td>${esc(l.description) || '<span class="muted">[description]</span>'}</td>
+      <td class="num">${l.minutes ? esc(duration(l.minutes)) : ''}</td>
+      <td class="num invnum">${l.rate !== null && l.rate !== undefined ? money(l.rate) : ''}</td>
+      <td class="num invnum">${money(l.amount)}</td></tr>`).join('');
+    return `<div class="doc">
+      <h2 class="doctitle">${esc(inv.from_line)}</h2>
+      <p class="docsub">Invoice</p>
+      <div class="invoice">
+        <div class="invhead"><h4>Invoice</h4>
+          <span class="invno">No. ${esc(inv.number)} &nbsp;&middot;&nbsp; ${esc(fmtDate(inv.issued_date, { year: 'numeric', month: 'long', day: 'numeric' }))}</span></div>
+        <div class="invrow"><span>Bill to</span><span>${esc(inv.bill_to)}${inv.student ? ' (for ' + esc(inv.student) + ')' : ''}</span></div>
+        <div class="invrow"><span>From</span><span>${esc(inv.from_line)}</span></div>
+        <div class="invrow"><span>Services for</span><span>${esc(monthLabel(inv.period))}</span></div>
+        <div class="invrow"><span>Payment due</span><span>${esc(inv.due_text) || '—'}</span></div>
+        <div class="invrow"><span>Payment methods</span><span>Venmo, Zelle, or bank transfer</span></div>
+        <table>
+          <thead><tr><th>Date</th><th>Description</th><th class="num">Length</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+          <tbody>${lineRows || '<tr><td colspan="5" class="muted">No line items yet.</td></tr>'}</tbody>
+        </table>
+        <div class="invtotal"><span>Total due</span><span class="invnum">${money(inv.total)}</span></div>
+        ${inv.notes ? `<p class="invnote">${esc(inv.notes)}</p>` : ''}
+        <p class="invfee">Client is responsible for any credit card processing fees, foreign transaction fees, or
+        bank/wire transfer fees incurred in sending payment. The amount received by ${esc(inv.from_line)}
+        must equal the Total Due above, net of any such fees.</p>
+      </div>
+      <p class="disclaimer">Questions about this invoice? Contact ${esc(inv.from_line)}.</p>
+    </div>`;
+  }
+
+  function draftInvoice(){
+    const c = clients.find(x => String(x.id) === $('iClient').value) || {};
+    const lines = [
+      ...draftLines.filter(l => l.include).map(l => ({ date: l.session.date, description: l.description, minutes: l.session.minutes, rate: l.rate, amount: lineAmount(l) || 0 }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
+      ...extras.filter(x => x.description || x.amount !== '').map(x => ({ date: '', description: x.description, minutes: null, rate: null, amount: round2(Number(x.amount) || 0) })),
+    ];
+    return {
+      number: 'PW-' + ($('iMonth').value || '').replace('-', '') + '-##',
+      from_line: $('iLlc').checked ? 'Palisade Writers LLC' : 'Palisade Writers',
+      bill_to: c.name || '', student: c.student || '', period: $('iMonth').value || thisMonth(),
+      issued_date: $('iIssued').value, due_text: $('iDue').value, notes: $('iNotes').value,
+      lines, total: round2(lines.reduce((a, l) => a + l.amount, 0)),
+    };
+  }
+  function renderPreview(){ if(!$('builder').hidden) $('iPreview').innerHTML = invoiceDoc(draftInvoice()); }
+
+  $('iSave').addEventListener('click', async () => {
+    const included = draftLines.filter(l => l.include);
+    const missing = included.find(l => l.rate === null || l.rate === '' || isNaN(l.rate));
+    if(missing){ toast(`Set a rate for the ${fmtDate(missing.session.date)} session.`, true); return; }
+    $('iSave').disabled = true;
+    try {
+      const res = await api('admin/invoices', { method: 'POST', body: {
+        client_id: Number($('iClient').value), period: $('iMonth').value, issued_date: $('iIssued').value,
+        due_text: $('iDue').value, notes: $('iNotes').value, llc: $('iLlc').checked,
+        lines: included.map(l => ({ session_id: l.session.id, rate: Number(l.rate), description: l.description })),
+        extras: extras.filter(x => x.description || x.amount !== '').map(x => ({ description: x.description, amount: Number(x.amount) })),
+      }});
+      toast('Saved invoice ' + res.number);
+      $('iNotes').value = '';
+      await Promise.all([loadBuilder(), loadInvoices(), loadSessions()]);
+      await printInvoice(res.id);
+    } catch(err){ toast(err.message, true); }
+    finally { $('iSave').disabled = false; }
+  });
+
+  async function printInvoice(id){
+    const inv = await api('admin/invoices/' + id);
+    $('printArea').innerHTML = invoiceDoc(inv);
+    const prevTitle = document.title;
+    document.title = 'Palisade_Invoice_' + inv.number + '_' + inv.bill_to.replace(/[^a-z0-9]+/gi, '_');
+    window.print();
+    document.title = prevTitle;
+  }
+
+  // ================= SAVED INVOICES =================
+  let invoices = [];
+  $('lMonth').value = thisMonth();
+  $('lMonth').addEventListener('change', loadInvoices);
+  $('lAll').addEventListener('change', loadInvoices);
+
+  async function loadInvoices(){
+    const q = $('lAll').checked || !$('lMonth').value ? '' : '?month=' + $('lMonth').value;
+    try { invoices = await api('admin/invoices' + q); } catch(err){ toast(err.message, true); invoices = []; }
+    const statusOpts = s => ['draft', 'sent', 'paid'].map(o => `<option value="${o}" ${o === s ? 'selected' : ''}>${o[0].toUpperCase() + o.slice(1)}</option>`).join('');
+    $('invoiceList').innerHTML = invoices.length ? `
+      <thead><tr><th>Number</th><th>Client</th><th>For</th><th>Issued</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
+      <tbody>${invoices.map(i => `<tr class="${i.status === 'void' ? 'inactive' : ''}">
+        <td class="num" style="text-align:left">${esc(i.number)}</td>
+        <td>${esc(i.bill_to)}${i.student ? '<br><span class="muted small">' + esc(i.student) + '</span>' : ''}</td>
+        <td>${esc(monthLabel(i.period))}</td>
+        <td style="white-space:nowrap">${esc(fmtDate(i.issued_date, { month: 'short', day: 'numeric', year: 'numeric' }))}</td>
+        <td class="num">${money(i.total)}</td>
+        <td>${i.status === 'void' ? '<span class="pill">Void</span>' : `<select class="compact" data-status="${esc(i.id)}" aria-label="Status">${statusOpts(i.status)}</select>`}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-sm" data-print="${esc(i.id)}">View / print</button>
+          ${i.status === 'void' ? '' : `<button class="btn btn-sm btn-danger" data-void="${esc(i.id)}">Void</button>`}
+        </td></tr>`).join('')}</tbody>`
+      : '<tbody><tr><td class="empty">No invoices yet.</td></tr></tbody>';
+  }
+  $('invoiceList').addEventListener('change', async e => {
+    const id = e.target.dataset.status;
+    if(!id) return;
+    try { await api('admin/invoices/' + id, { method: 'PUT', body: { status: e.target.value } }); toast('Status updated'); }
+    catch(err){ toast(err.message, true); loadInvoices(); }
+  });
+  $('invoiceList').addEventListener('click', async e => {
+    const d = e.target.dataset;
+    if(d.print) { try { await printInvoice(d.print); } catch(err){ toast(err.message, true); } }
+    if(d.void){
+      const inv = invoices.find(i => i.id === d.void);
+      if(!confirm(`Void ${inv.number}? Its sessions go back to "not invoiced" so you can bill them again. The number won't be reused.`)) return;
+      try {
+        await api('admin/invoices/' + d.void, { method: 'PUT', body: { status: 'void' } });
+        toast(inv.number + ' voided');
+        await Promise.all([loadInvoices(), loadSessions(), loadBuilder()]);
+      } catch(err){ toast(err.message, true); }
+    }
+  });
+
+  // ================= TEAM =================
+  function renderTeam(){
+    $('teamTable').innerHTML = `
+      <thead><tr><th>Email</th><th>Name</th><th>Role</th><th class="num">Default pay $/hr</th><th>Active</th><th></th></tr></thead>
+      <tbody>${users.map(u => `<tr data-user="${esc(u.email)}" class="${u.active ? '' : 'inactive'}">
+        <td>${esc(u.email)}</td>
+        <td><input type="text" class="compact" data-f="name" value="${esc(u.name)}"></td>
+        <td><select class="compact" data-f="role"><option value="tutor" ${u.role === 'tutor' ? 'selected' : ''}>Tutor</option><option value="founder" ${u.role === 'founder' ? 'selected' : ''}>Founder</option></select></td>
+        <td class="num"><input type="number" class="rate compact" data-f="default_pay_rate" min="0" step="1" value="${u.default_pay_rate ?? ''}"></td>
+        <td><input type="checkbox" data-f="active" ${u.active ? 'checked' : ''} aria-label="Active"></td>
+        <td><button class="btn btn-sm" data-saveuser>Save</button></td>
+      </tr>`).join('')}</tbody>`;
+  }
+  $('teamTable').addEventListener('click', async e => {
+    if(!('saveuser' in e.target.dataset)) return;
+    const tr = e.target.closest('tr');
+    const f = n => tr.querySelector(`[data-f="${n}"]`);
+    try {
+      await api('admin/users/' + encodeURIComponent(tr.dataset.user), { method: 'PUT', body: {
+        name: f('name').value, role: f('role').value, active: f('active').checked,
+        default_pay_rate: f('default_pay_rate').value === '' ? null : Number(f('default_pay_rate').value),
+      }});
+      toast('Saved'); await loadPeople();
+    } catch(err){ toast(err.message, true); }
+  });
+  $('addPerson').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      await api('admin/users', { method: 'POST', body: {
+        email: $('pEmail').value, name: $('pName').value, role: $('pRole').value,
+        default_pay_rate: $('pRate').value === '' ? null : Number($('pRate').value),
+      }});
+      e.target.reset(); toast('Added — they can sign in now'); await loadPeople();
+    } catch(err){ toast(err.message, true); }
+  });
+
+  // ================= CLIENTS =================
+  let editingClient = null; // client object, or {} for new
+  function renderClients(){
+    $('clientTable').innerHTML = clients.length ? `
+      <thead><tr><th>Client</th><th>Student</th><th class="num">Default rate</th><th>Tutors</th><th></th></tr></thead>
+      <tbody>${clients.map(c => `<tr class="${c.active ? '' : 'inactive'}">
+        <td>${esc(c.name)}${c.billing_email ? '<br><span class="muted small">' + esc(c.billing_email) + '</span>' : ''}</td>
+        <td>${esc(c.student)}</td>
+        <td class="num">${c.default_rate !== null ? money(c.default_rate) + '/hr' : '<span class="pill warn">not set</span>'}</td>
+        <td>${c.tutors.length ? c.tutors.map(t => esc(firstName(tutorName(t.tutor_email)))).join(', ') : '<span class="muted">none</span>'}</td>
+        <td><button class="btn btn-sm" data-editclient="${c.id}">Edit</button></td>
+      </tr>`).join('')}</tbody>`
+      : '<tbody><tr><td class="empty">No clients yet. Add one to let tutors log sessions.</td></tr></tbody>';
+    renderClientEditor();
+  }
+
+  function renderClientEditor(){
+    const c = editingClient;
+    if(!c){ $('clientEditor').innerHTML = ''; return; }
+    const isNew = !c.id;
+    const links = c.tutors || [];
+    $('clientEditor').innerHTML = `<form class="clientEdit" id="clientForm">
+      <h3 style="margin-top:0;">${isNew ? 'New client' : 'Edit ' + esc(c.name)}</h3>
+      <div class="grid g4">
+        <div><label class="lbl" for="cName">Client / parent name</label><input type="text" id="cName" required value="${esc(c.name || '')}"></div>
+        <div><label class="lbl" for="cStudent">Student</label><input type="text" id="cStudent" value="${esc(c.student || '')}"></div>
+        <div><label class="lbl" for="cEmail">Billing email</label><input type="email" id="cEmail" value="${esc(c.billing_email || '')}"></div>
+        <div><label class="lbl" for="cRate">Default client rate <span class="hint">($/hr)</span></label><input type="number" id="cRate" min="0" step="5" value="${c.default_rate ?? ''}"></div>
+        <div class="span2"><label class="lbl" for="cNotes">Internal notes</label><input type="text" id="cNotes" value="${esc(c.notes || '')}"></div>
+        ${isNew ? '' : `<div><label class="lbl">&nbsp;</label><label class="row small"><input type="checkbox" id="cActive" ${c.active ? 'checked' : ''}> Active</label></div>`}
+      </div>
+      ${isNew ? '' : `<h3>Tutors for this client</h3>
+      <p class="small muted">Tick who works with ${esc(c.name)}. Leave a rate blank to use the defaults (the tutor's pay rate, the client's rate).</p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Assigned</th><th>Tutor</th><th class="num">Pay $/hr for this client</th><th class="num">Bill $/hr with this tutor</th></tr></thead>
+        <tbody>${users.filter(u => u.active).map(u => { const l = links.find(x => x.tutor_email === u.email); return `<tr data-assign="${esc(u.email)}">
+          <td><input type="checkbox" data-a="assigned" ${l ? 'checked' : ''} aria-label="Assigned"></td>
+          <td>${esc(u.name || u.email)} <span class="muted small">${u.default_pay_rate !== null ? '(default ' + money(u.default_pay_rate) + ')' : ''}</span></td>
+          <td class="num"><input type="number" class="rate compact" data-a="pay_rate" min="0" step="1" value="${l && l.pay_rate !== null ? l.pay_rate : ''}"></td>
+          <td class="num"><input type="number" class="rate compact" data-a="client_rate" min="0" step="5" value="${l && l.client_rate !== null ? l.client_rate : ''}"></td>
+        </tr>`; }).join('')}</tbody></table></div>`}
+      <div class="row end" style="margin-top:12px;">
+        <button type="button" class="btn" id="cCancel">Cancel</button>
+        <button class="btn btn-primary">${isNew ? 'Create client' : 'Save client'}</button>
+      </div>
+    </form>`;
+    $('cCancel').addEventListener('click', () => { editingClient = null; renderClientEditor(); });
+    $('clientForm').addEventListener('submit', saveClient);
+  }
+
+  async function saveClient(e){
+    e.preventDefault();
+    const c = editingClient;
+    const payload = {
+      name: $('cName').value, student: $('cStudent').value, billing_email: $('cEmail').value,
+      default_rate: $('cRate').value === '' ? null : Number($('cRate').value), notes: $('cNotes').value,
+      active: c.id ? $('cActive').checked : true,
+    };
+    const num = v => v === '' ? null : Number(v);
+    try {
+      if(!c.id){
+        const res = await api('admin/clients', { method: 'POST', body: payload });
+        await loadPeople();
+        editingClient = clients.find(x => x.id === res.id) || null;
+        renderClientEditor();
+        toast('Client created — now assign their tutor');
+        return;
+      }
+      await api('admin/clients/' + c.id, { method: 'PUT', body: payload });
+      const saves = [];
+      document.querySelectorAll('#clientForm [data-assign]').forEach(tr => {
+        const g = n => tr.querySelector(`[data-a="${n}"]`);
+        const was = (c.tutors || []).find(x => x.tutor_email === tr.dataset.assign);
+        const assigned = g('assigned').checked;
+        const pay = num(g('pay_rate').value), bill = num(g('client_rate').value);
+        const changed = assigned !== !!was || (was && (was.pay_rate !== pay || was.client_rate !== bill));
+        if(changed) saves.push(api('admin/assignments', { method: 'PUT', body: { tutor_email: tr.dataset.assign, client_id: c.id, assigned, pay_rate: pay, client_rate: bill } }));
+      });
+      await Promise.all(saves);
+      editingClient = null;
+      toast('Client saved');
+      await loadPeople();
+    } catch(err){ toast(err.message, true); }
+  }
+
+  $('newClientBtn').addEventListener('click', () => { editingClient = {}; renderClientEditor(); $('cName').focus(); });
+  $('clientTable').addEventListener('click', e => {
+    const id = e.target.dataset.editclient;
+    if(!id) return;
+    editingClient = clients.find(c => c.id === Number(id));
+    renderClientEditor();
+    $('clientEditor').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  // ---------- boot ----------
+  try { await loadPeople(); } catch(err){ toast(err.message, true); }
+  loadSessions();
+  loadInvoices();
+  const savedTab = storage.get('pw.tab');
+  if(savedTab) document.querySelector(`.tabs [data-tab="${savedTab}"]`)?.click();
+})();
+</script>
+</body>
+</html>
