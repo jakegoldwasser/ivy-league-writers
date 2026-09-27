@@ -55,6 +55,22 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
   Workers & Pages dashboard once) — `npm run deploy` otherwise deploys the Worker
   fine but errors on the trigger step.
 
+## Student narrative scratchpad
+
+- `/student` (`public/student.html`, self-contained, doesn't use `portal.js`/`portal.css`):
+  any Google account can sign in and sketch a college-essay narrative arc in seven
+  prompt sections; autosaves to D1 (`students`, `student_narratives`, migration 0004).
+- **Students must never reach staff tools.** They're a separate identity: routes are
+  `/api/student/*` only (`studentRoutes` in `src/worker.js`, dispatched before the staff
+  session is read), cookie is `pw_student` scoped to `Path=/api/student`, and its HMAC
+  signs `'student:' + payload` so it can't be replayed as `pw_session` even for a
+  founder's email. Student sign-in never creates a `users` row. Every narrative query
+  is keyed on `(id, student_email)`.
+- "Save as Google Doc" is client-side only: a GIS token client with the `drive.file`
+  scope uploads HTML to Drive as a native Doc. Requires the Google Drive API to be
+  enabled on the OAuth client's Cloud project and `drive.file` on the consent screen.
+  If it fails, the page falls back to copy-to-clipboard + docs.new.
+
 Legacy: this repo's `main` branch also still deploys to **ivyleaguewriters.com**
 via GitHub Pages (the root `CNAME` file), which is a separate, older site under
 the "Ivy League Writers" brand. Do not assume AWS is involved anywhere here.
