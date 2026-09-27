@@ -460,7 +460,10 @@ async function adminRoutes(request, env, user, seg, url) {
   // People
   if (resource === 'users') {
     if (!id && method === 'GET') {
-      const { results } = await env.DB.prepare('SELECT email, name, role, default_pay_rate, active FROM users ORDER BY role, name, email').all();
+      const { results } = await env.DB.prepare(`SELECT u.email, u.name, u.role, u.default_pay_rate, u.active,
+          (SELECT COUNT(*) FROM sessions s WHERE s.tutor_email = u.email) AS session_count,
+          (SELECT COUNT(*) FROM sessions s WHERE s.tutor_email = u.email AND s.invoice_id IS NOT NULL) AS invoiced_count
+        FROM users u ORDER BY u.role, u.name, u.email`).all();
       return json(results);
     }
     if (!id && method === 'POST') {
@@ -485,6 +488,25 @@ async function adminRoutes(request, env, user, seg, url) {
       if (!r.meta.changes) throw new HttpError(404, 'Person not found.');
       return json({ ok: true });
     }
+    // Deleting a person also deletes their uninvoiced sessions and client
+    // assignments. Invoiced sessions back a financial record, so anyone with one
+    // can only be marked inactive — same rule as deleting a client.
+    if (id && method === 'DELETE') {
+      const email = decodeURIComponent(id).toLowerCase();
+      if (email === user.email) bad("You can't delete yourself.");
+      // A FOUNDER_EMAILS founder would just be re-created on their next sign-in.
+      const founders = (env.FOUNDER_EMAILS || '').split(',').map(s => s.trim().toLowerCase());
+      if (founders.includes(email)) bad('This founder is set in the site config, so they can’t be deleted here.');
+      const inv = await env.DB.prepare('SELECT COUNT(*) AS n FROM sessions WHERE tutor_email = ? AND invoice_id IS NOT NULL').bind(email).first();
+      if (inv.n) throw new HttpError(409, 'This person has invoiced sessions, so they can’t be deleted. Untick Active instead.');
+      const [sess, , del] = await env.DB.batch([
+        env.DB.prepare('DELETE FROM sessions WHERE tutor_email = ?').bind(email),
+        env.DB.prepare('DELETE FROM tutor_clients WHERE tutor_email = ?').bind(email),
+        env.DB.prepare('DELETE FROM users WHERE email = ?').bind(email),
+      ]);
+      if (!del.meta.changes) throw new HttpError(404, 'Person not found.');
+      return json({ ok: true, sessions_deleted: sess.meta.changes });
+    }
   }
 
   // Clients (with their tutor assignments)
@@ -507,14 +529,14 @@ async function adminRoutes(request, env, user, seg, url) {
       const defaultRate = rateParam(b.default_rate);
       if (defaultRate === null) bad('Set a default rate for this client.');
       const vals = [name, str(b.student, 120, 'Student'), str(b.billing_email, 200, 'Billing email'),
-        defaultRate, str(b.notes, 1000, 'Notes')];
+        str(b.location, 200, 'Location'), defaultRate, str(b.notes, 1000, 'Notes')];
       if (method === 'POST' && !id) {
-        const row = await env.DB.prepare(`INSERT INTO clients (name, student, billing_email, default_rate, notes)
-            VALUES (?, ?, ?, ?, ?) RETURNING id`).bind(...vals).first();
+        const row = await env.DB.prepare(`INSERT INTO clients (name, student, billing_email, location, default_rate, notes)
+            VALUES (?, ?, ?, ?, ?, ?) RETURNING id`).bind(...vals).first();
         return json({ id: row.id }, 201);
       }
       if (method === 'PUT' && id) {
-        const r = await env.DB.prepare(`UPDATE clients SET name = ?, student = ?, billing_email = ?, default_rate = ?, notes = ?,
+        const r = await env.DB.prepare(`UPDATE clients SET name = ?, student = ?, billing_email = ?, location = ?, default_rate = ?, notes = ?,
             active = ? WHERE id = ?`).bind(...vals, b.active ? 1 : 0, intParam(id)).run();
         if (!r.meta.changes) throw new HttpError(404, 'Client not found.');
         return json({ ok: true });

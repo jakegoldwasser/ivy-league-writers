@@ -737,10 +737,14 @@
         <td><select class="compact" data-f="role"><option value="tutor" ${u.role === 'tutor' ? 'selected' : ''}>Tutor</option><option value="founder" ${u.role === 'founder' ? 'selected' : ''}>Founder</option></select></td>
         <td class="num"><input type="number" class="rate compact" data-f="default_pay_rate" min="0" step="1" value="${u.default_pay_rate ?? ''}"></td>
         <td><input type="checkbox" data-f="active" ${u.active ? 'checked' : ''} aria-label="Active"></td>
-        <td><button class="btn btn-sm" data-saveuser>Save</button></td>
+        <td style="white-space:nowrap"><button class="btn btn-sm" data-saveuser>Save</button>
+          ${u.email === me.email ? '' : u.invoiced_count
+            ? `<button class="btn btn-sm btn-danger" disabled title="Has invoiced sessions, so they can't be deleted — untick Active instead.">Delete</button>`
+            : `<button class="btn btn-sm btn-danger" data-deleteuser>Delete</button>`}</td>
       </tr>`).join('')}</tbody>`;
   }
   $('teamTable').addEventListener('click', async e => {
+    if('deleteuser' in e.target.dataset) return deleteUser(e.target.closest('tr').dataset.user);
     if(!('saveuser' in e.target.dataset)) return;
     const tr = e.target.closest('tr');
     const f = n => tr.querySelector(`[data-f="${n}"]`);
@@ -752,6 +756,20 @@
       toast('Saved'); await loadPeople();
     } catch(err){ toast(err.message, true); }
   });
+  async function deleteUser(email){
+    const u = users.find(x => x.email === email);
+    const n = u.session_count;
+    const msg = `Delete ${u.name || u.email}?` +
+      (n ? `\n\nThis also permanently deletes their ${n} logged session${n === 1 ? '' : 's'}, which will drop out of pay and can't be invoiced.` : '') +
+      `\n\nThey'll lose access right away. This can't be undone.`;
+    if(!confirm(msg)) return;
+    try {
+      await api('admin/users/' + encodeURIComponent(email), { method: 'DELETE' });
+      toast('Deleted ' + (u.name || u.email));
+      await loadPeople();
+      loadSessions();
+    } catch(err){ toast(err.message, true); }
+  }
   $('addPerson').addEventListener('submit', async e => {
     e.preventDefault();
     try {
@@ -767,10 +785,11 @@
   let editingClient = null; // client object, or {} for new
   function renderClients(){
     $('clientTable').innerHTML = clients.length ? `
-      <thead><tr><th>Client</th><th>Student</th><th class="num">Default rate</th><th>Tutors</th><th></th></tr></thead>
+      <thead><tr><th>Client</th><th>Student</th><th>Location</th><th class="num">Default rate</th><th>Tutors</th><th></th></tr></thead>
       <tbody>${clients.map(c => `<tr class="${c.active ? '' : 'inactive'}">
         <td>${esc(c.name)}${c.billing_email ? '<br><span class="muted small">' + esc(c.billing_email) + '</span>' : ''}</td>
         <td>${esc(c.student)}</td>
+        <td>${esc(c.location || '')}</td>
         <td class="num">${c.default_rate !== null ? money(c.default_rate) + '/hr' : '<span class="pill warn">not set</span>'}</td>
         <td>${c.tutors.length ? c.tutors.map(t => esc(firstName(tutorName(t.tutor_email)))).join(', ') : '<span class="muted">none</span>'}</td>
         <td><button class="btn btn-sm" data-editclient="${c.id}">Edit</button></td>
@@ -791,6 +810,7 @@
         <div><label class="lbl" for="cStudent">Student</label><input type="text" id="cStudent" value="${esc(c.student || '')}"></div>
         <div><label class="lbl" for="cEmail">Billing email</label><input type="email" id="cEmail" value="${esc(c.billing_email || '')}"></div>
         <div><label class="lbl" for="cRate">Default client rate <span class="hint">($/hr)</span></label><input type="number" id="cRate" min="0" step="5" required value="${c.default_rate ?? ''}"></div>
+        <div class="span2"><label class="lbl" for="cLocation">Location</label><input type="text" id="cLocation" placeholder="e.g. Upper West Side, or Zoom" value="${esc(c.location || '')}"></div>
         <div class="span2"><label class="lbl" for="cNotes">Internal notes</label><input type="text" id="cNotes" value="${esc(c.notes || '')}"></div>
         ${isNew ? '' : `<div><label class="lbl">&nbsp;</label><label class="row small"><input type="checkbox" id="cActive" ${c.active ? 'checked' : ''}> Active</label></div>`}
       </div>
@@ -838,7 +858,7 @@
     e.preventDefault();
     const c = editingClient;
     const payload = {
-      name: $('cName').value, student: $('cStudent').value, billing_email: $('cEmail').value,
+      name: $('cName').value, student: $('cStudent').value, billing_email: $('cEmail').value, location: $('cLocation').value,
       default_rate: $('cRate').value === '' ? null : Number($('cRate').value), notes: $('cNotes').value,
       active: c.id ? $('cActive').checked : true,
     };

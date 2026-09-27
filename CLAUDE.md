@@ -7,6 +7,8 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
 - Deploy command: `npm run deploy` (`wrangler deploy`; run `npm install` first)
 - Config: `wrangler.jsonc` (routes bind palisadewriters.com + www to this Worker)
 - Contact form posts to web3forms.com (access key hardcoded in `public/index.html`).
+- Landing copy must not promise or imply admissions (or publication) outcomes: no
+  "admitted to…" lists or "deliver results". The footer carries a no-guarantee disclaimer.
 
 ## Timesheet / invoice portal
 
@@ -27,6 +29,9 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
   apply with `npm run db:migrate`. Local test DB: `wrangler d1 migrations apply palisade-portal --local`.
 - Local testing: `npm run dev`. `.dev.vars` (gitignored) with `DEV_MODE="1"` enables
   an email-only test login at `/api/dev-login`; it is never on in production.
+- Deleting a client or a person (Team & clients) also deletes their uninvoiced
+  sessions and assignments; anyone with an invoiced session can only be made
+  inactive. You can't delete yourself or a `FOUNDER_EMAILS` founder.
 - Every client must have a `default_rate` (enforced server-side and via `required`
   on the form) — there is no such thing as a client without a billing rate.
 
