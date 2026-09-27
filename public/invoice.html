@@ -164,7 +164,7 @@
           <span class="small muted">Bill by the hour with hours and a rate, or leave hours blank for a flat amount (fees, packages, a discount as a negative). Hours can be 1.5, 1:30 or 90m.</span>
         </div>
         <h3>Note on invoice <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400;">(optional)</span></h3>
-        <textarea id="iNotes" maxlength="1000" placeholder="e.g. Thank you! Venmo @palisadewriters"></textarea>
+        <textarea id="iNotes" maxlength="1000" placeholder="e.g. Thank you for a great month!"></textarea>
         <div class="row end" style="margin-top:14px;">
           <button class="btn btn-primary" id="iSave">Save invoice &amp; print</button>
         </div>
@@ -594,14 +594,15 @@
         <div class="invrow"><span>From</span><span>${esc(inv.from_line)}</span></div>
         <div class="invrow"><span>Services for</span><span>${esc(monthLabel(inv.period))}</span></div>
         <div class="invrow"><span>Payment due</span><span>${esc(inv.due_text) || '—'}</span></div>
-        <div class="invrow"><span>Payment methods</span><span>Venmo, Zelle, or bank transfer</span></div>
+        <div class="invrow"><span>Payment methods</span><span>Venmo or Zelle to @palisadewriters</span></div>
         <table>
           <thead><tr><th>Date</th><th>Description</th><th class="num">Length</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
           <tbody>${lineRows || '<tr><td colspan="5" class="muted">No line items yet.</td></tr>'}</tbody>
         </table>
         <div class="invtotal"><span>Total due</span><span class="invnum">${money(inv.total)}</span></div>
         ${inv.notes ? `<p class="invnote">${esc(inv.notes)}</p>` : ''}
-        <p class="invfee">Client is responsible for any credit card processing fees, foreign transaction fees, or
+        <p class="invfee">Payment can be made via Venmo or Zelle to @palisadewriters. Credit card payments incur a
+        2% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or
         bank/wire transfer fees incurred in sending payment. The amount received by ${esc(inv.from_line)}
         must equal the Total Due above, net of any such fees.</p>
       </div>
