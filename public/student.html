@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="description" content="Palisade Writers narrative scratchpad: sketch the arc of an experience that shaped you." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%93%98</text></svg>" />
+<title>Narrative Scratchpad</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  /* Concept: an exam blue book. Pale ruled paper, navy cover ink, the red
+     margin line down the left of every page, and a pencil-yellow highlight. */
+  :root{
+    --paper:#f5f3ea;
+    --surface:#fffdf7;
+    --ink:#1a2340;
+    --ink-soft:#4b5470;
+    --ink-faint:#8b90a2;
+    --line:#d8dbe4;
+    --ruled:#c9d3e6;
+
+    --blue:#24478f;
+    --blue-deep:#162f63;
+    --blue-tint:#e4e9f4;
+    --red:#b13a36;
+    --red-deep:#8a2824;
+    --red-tint:#f6e2de;
+    --pencil:#d9a82e;
+    --pencil-tint:#f7ebc6;
+    --on-accent:#fffdf7;
+
+    --serif:"Source Serif 4", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --sans:"IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --max:1180px;
+    --gutter:clamp(16px, 4vw, 32px);
+  }
+  /* Same blue-book temperature after dark: a navy cover, cream ink. */
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#121829; --surface:#19213a; --ink:#ece8da; --ink-soft:#b7b6ad; --ink-faint:#80828f;
+      --line:#2c3552; --ruled:#2a3453;
+      --blue:#8eaae6; --blue-deep:#b9cbf2; --blue-tint:#1f2c4f;
+      --red:#e0807a; --red-deep:#f0a9a4; --red-tint:#3a2230;
+      --pencil:#e5bd55; --pencil-tint:#3a3420; --on-accent:#121829;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#121829; --surface:#19213a; --ink:#ece8da; --ink-soft:#b7b6ad; --ink-faint:#80828f;
+    --line:#2c3552; --ruled:#2a3453;
+    --blue:#8eaae6; --blue-deep:#b9cbf2; --blue-tint:#1f2c4f;
+    --red:#e0807a; --red-deep:#f0a9a4; --red-tint:#3a2230;
+    --pencil:#e5bd55; --pencil-tint:#3a3420; --on-accent:#121829;
+  }
+
+  *{ box-sizing:border-box; }
+  @media (prefers-reduced-motion: reduce){ *{ transition:none !important; } }
+  html{ -webkit-text-size-adjust:100%; }
+  body{ margin:0; background:var(--paper); color:var(--ink); font:400 16px/1.55 var(--sans); }
+  [hidden]{ display:none !important; }
+  a{ color:var(--blue); text-decoration:underline; text-underline-offset:3px; text-decoration-thickness:1.5px; }
+  a:hover{ color:var(--blue-deep); background:var(--pencil-tint); }
+  h1, h2, h3{ font-family:var(--serif); text-wrap:balance; }
+  .wrap{ max-width:var(--max); margin:0 auto; padding:0 var(--gutter); }
+  .label{ font:600 11.5px/1.2 var(--sans); letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft); }
+
+  /* ---------- Header ---------- */
+  header.top{ position:sticky; top:0; z-index:20; background:var(--paper); border-bottom:3px solid var(--ink); transition:background-color .2s ease; }
+  header.top.scrolled{ background:color-mix(in srgb, var(--paper) 86%, transparent); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  .top-inner{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding-block:14px; }
+  .brand{ display:flex; align-items:baseline; gap:10px; min-width:0; color:var(--ink); text-decoration:none; }
+  .brand:hover{ background:none; color:var(--ink); }
+  .brand b{ font:700 clamp(18px, 2.4vw, 21px)/1 var(--serif); white-space:nowrap; }
+  .brand span{ font:600 11px/1 var(--sans); letter-spacing:.14em; text-transform:uppercase; color:var(--red); white-space:nowrap; }
+  .account{ display:flex; align-items:center; gap:14px; font-size:13.5px; color:var(--ink-soft); min-width:0; }
+  .status{ display:inline-flex; align-items:center; gap:6px; white-space:nowrap; font:500 12px var(--mono); }
+  .status::before{ content:""; width:8px; height:8px; border-radius:50%; background:var(--ink-faint); }
+  .status[data-state="saved"]::before{ background:var(--blue); }
+  .status[data-state="saving"]::before{ background:var(--pencil); }
+  .status[data-state="error"]::before{ background:var(--red); }
+  .status[data-state="error"]{ color:var(--red); }
+  .who{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:24ch; }
+  @media (max-width:640px){ .who{ display:none; } .brand span{ display:none; } }
+
+  /* ---------- Buttons ---------- */
+  .btn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 18px;
+    border-radius:999px; border:2px solid var(--ink); background:var(--surface); color:var(--ink);
+    font:600 14px/1 var(--sans); cursor:pointer; text-decoration:none; transition:background-color .15s ease, color .15s ease, transform .15s ease; }
+  .btn:hover{ background:var(--blue-tint); color:var(--ink); transform:translateY(-2px); }
+  .btn-primary{ background:var(--blue); border-color:var(--blue); color:var(--on-accent); }
+  .btn-primary:hover{ background:var(--blue-deep); border-color:var(--blue-deep); color:var(--on-accent); }
+  .btn-sm{ min-height:32px; padding:5px 13px; font-size:13px; }
+  .btn-quiet{ border-color:var(--line); }
+  .btn-danger:hover{ background:var(--red-tint); border-color:var(--red); color:var(--red-deep); }
+  .btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; }
+  :focus-visible{ outline:3px solid var(--pencil); outline-offset:2px; }
+
+  /* ---------- Gate ---------- */
+  .gate{ max-width:560px; margin:clamp(40px, 9vh, 96px) auto; padding:0 var(--gutter); }
+  .gate-card{ background:var(--surface); border:3px solid var(--ink); border-left:10px solid var(--red); padding:32px clamp(20px, 5vw, 40px) 28px; }
+  .gate h1{ margin:8px 0 12px; font-size:clamp(28px, 5vw, 38px); line-height:1.1; }
+  .gate p{ color:var(--ink-soft); margin:0 0 12px; }
+  #gsiButton{ min-height:44px; margin:24px 0 10px; }
+  .fine{ font-size:13px; color:var(--ink-faint); border-top:1px solid var(--line); padding-top:14px; margin-top:18px !important; }
+  .error{ color:var(--red); font-size:14px; min-height:1em; }
+  #devForm{ display:flex; gap:8px; }
+
+  /* ---------- Intro band ---------- */
+  .band{ background:var(--ink); color:var(--paper); }
+  .band .wrap{ padding-block:clamp(28px, 5vw, 48px); display:grid; grid-template-columns:1.1fr 1fr; gap:clamp(20px, 4vw, 56px); align-items:end; }
+  .band .label{ color:var(--pencil); }
+  .band h1{ margin:10px 0 0; font-size:clamp(30px, 4.6vw, 50px); line-height:1.05; font-weight:600; }
+  .band h1 em{ font-style:italic; color:var(--pencil); }
+  .rules{ list-style:none; margin:0; padding:0; counter-reset:r; display:grid; gap:12px; }
+  .rules li{ counter-increment:r; display:grid; grid-template-columns:28px 1fr; gap:10px; font-size:15px; line-height:1.45; color:color-mix(in srgb, var(--paper) 86%, var(--ink)); }
+  .rules li::before{ content:counter(r); font:500 13px/26px var(--mono); text-align:center; height:26px; border:1.5px solid var(--pencil); color:var(--pencil); }
+  .rules b{ color:var(--paper); font-weight:600; }
+  @media (max-width:820px){ .band .wrap{ grid-template-columns:1fr; } }
+
+  /* ---------- Layout ---------- */
+  main.layout{ display:grid; grid-template-columns:minmax(0, 1.12fr) minmax(0, .88fr); gap:clamp(20px, 3vw, 36px); align-items:start; padding-block:32px 72px; }
+  @media (max-width:940px){ main.layout{ grid-template-columns:1fr; } }
+
+  /* ---------- Draft bar + title card ---------- */
+  .card{ background:var(--surface); border:2px solid var(--ink); margin-bottom:24px; }
+  .titlecard{ padding:18px 22px 20px; border-top:6px solid var(--ink); }
+  .drafts{ display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:8px; align-items:end; padding-bottom:16px; margin-bottom:16px; border-bottom:1px solid var(--line); }
+  @media (max-width:480px){ .drafts{ grid-template-columns:1fr 1fr; } .drafts .sel{ grid-column:1 / -1; } }
+
+  /* ---------- Sections (the "pages" of the blue book) ---------- */
+  .sec{ --c:var(--blue); --c-tint:var(--blue-tint); position:relative; background:var(--surface); border:2px solid var(--ink); margin-bottom:24px;
+    /* The red margin line of a blue-book page. */
+    background-image:linear-gradient(to right, transparent 46px, var(--red) 46px, var(--red) 47.5px, transparent 47.5px); }
+  .sec.red{ --c:var(--red); --c-tint:var(--red-tint); }
+  .sec.pencil{ --c:var(--pencil); --c-tint:var(--pencil-tint); }
+  .sec-head{ display:grid; grid-template-columns:48px 1fr; align-items:stretch; border-bottom:4px solid var(--c); }
+  .numeral{ display:flex; align-items:center; justify-content:center; font:600 17px var(--serif); color:var(--c); border-right:2px solid var(--ink); background:var(--c-tint); }
+  .sec-title{ padding:14px 20px 12px 16px; }
+  .sec-title h2{ margin:0; font-size:clamp(20px, 2.4vw, 24px); line-height:1.2; font-weight:600; }
+  .sec-title p{ margin:4px 0 0; color:var(--ink-soft); font-size:14.5px; }
+  .sec-body{ padding:18px 22px 22px 62px; }
+  @media (max-width:560px){
+    .sec{ background-image:linear-gradient(to right, transparent 12px, var(--red) 12px, var(--red) 13.5px, transparent 13.5px); }
+    .sec-head{ grid-template-columns:40px 1fr; }
+    .sec-body{ padding:16px 16px 20px 26px; }
+  }
+
+  details.tip{ margin:0 0 18px; border-left:3px solid var(--pencil); background:var(--pencil-tint); }
+  details.tip summary{ cursor:pointer; padding:8px 12px; font:600 12px var(--sans); letter-spacing:.1em; text-transform:uppercase; color:var(--ink); list-style:none; }
+  details.tip summary::-webkit-details-marker{ display:none; }
+  details.tip summary::before{ content:"+ "; font-family:var(--mono); }
+  details.tip[open] summary::before{ content:"– "; }
+  details.tip ul{ margin:0; padding:0 16px 12px 30px; font-size:14.5px; color:var(--ink-soft); }
+  details.tip li{ margin-bottom:4px; }
+  details.tip li b{ color:var(--ink); font-weight:600; }
+
+  .field{ margin-bottom:18px; }
+  .field:last-child{ margin-bottom:0; }
+  .field > label{ display:block; font:600 15px/1.35 var(--sans); margin-bottom:3px; }
+  .field .hint{ display:block; font-size:13.5px; line-height:1.4; color:var(--ink-soft); margin-bottom:7px; }
+  .field .hint:empty{ display:none; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:640px){ .row2{ grid-template-columns:1fr; } }
+
+  input[type=text], input[type=email], select, textarea{
+    width:100%; color:var(--ink); background:var(--surface); border:1.5px solid var(--ink-faint); border-radius:0;
+    /* 16px minimum so iOS Safari doesn't zoom the page on focus. */
+    font:400 16px/1.5 var(--serif); padding:9px 11px; }
+  select{ font-family:var(--sans); font-size:15px; min-height:40px; cursor:pointer; }
+  textarea{ resize:vertical; min-height:4.9em;
+    /* Ruled lines under the writing, locked to the line-height so text sits on them. */
+    background-image:repeating-linear-gradient(to bottom, transparent 0, transparent calc(1.5em - 1px), var(--ruled) calc(1.5em - 1px), var(--ruled) 1.5em);
+    background-position:0 9px; background-attachment:local; }
+  input:focus, select:focus, textarea:focus{ outline:none; border-color:var(--blue); box-shadow:inset 0 0 0 1px var(--blue); }
+  ::placeholder{ color:var(--ink-faint); font-style:italic; opacity:1; }
+  #title{ font-size:clamp(20px, 2.6vw, 24px); font-weight:600; border-width:0 0 2px; padding-inline:0; background:transparent; box-shadow:none; }
+  #title:focus{ border-color:var(--blue); }
+
+  /* ---------- Draft preview ---------- */
+  .preview{ position:sticky; top:84px; }
+  @media (max-width:940px){ .preview{ position:static; } }
+  .pv-head{ background:var(--blue); color:var(--on-accent); border:2px solid var(--ink); border-bottom:none; padding:18px 22px 14px; }
+  .pv-head .label{ color:inherit; opacity:.8; }
+  .pv-head h2{ margin:6px 0 0; font-size:clamp(22px, 2.8vw, 28px); line-height:1.15; font-weight:600; overflow-wrap:anywhere; }
+  .pv-head p{ margin:6px 0 0; font:italic 400 15.5px/1.4 var(--serif); opacity:.9; }
+  .arc{ display:block; width:100%; height:auto; margin-top:12px; }
+  .arc path{ fill:none; stroke:currentColor; stroke-width:2; opacity:.55; }
+  .arc circle{ fill:var(--blue); stroke:currentColor; stroke-width:2; transition:fill .2s ease; }
+  .arc circle.done{ fill:var(--pencil); stroke:var(--pencil); }
+  .arc text{ fill:currentColor; font:500 9.5px var(--mono); text-anchor:middle; opacity:.85; }
+
+  .pv-body{ background:var(--surface); border:2px solid var(--ink); padding:20px 24px 22px; max-height:calc(100vh - 360px); min-height:240px; overflow-y:auto; scrollbar-gutter:stable; }
+  @media (max-width:940px){ .pv-body{ max-height:none; } }
+  .pv-sec{ margin-bottom:16px; }
+  .pv-sec h3{ margin:0 0 4px; font:600 11px var(--sans); letter-spacing:.14em; text-transform:uppercase; color:var(--ink-soft); display:flex; gap:8px; align-items:center; }
+  .pv-sec h3 i{ width:10px; height:10px; background:var(--c, var(--blue)); flex:none; }
+  .pv-sec p{ margin:0; font:400 16.5px/1.6 var(--serif); }
+  .blank{ color:var(--ink-faint); font-style:italic; }
+  .pv-sowhat{ margin-top:18px; padding:12px 16px; border-left:4px solid var(--red); background:var(--red-tint); font:italic 400 17px/1.5 var(--serif); }
+
+  .balance{ margin-top:18px; padding-top:14px; border-top:2px solid var(--ink); }
+  .balance-top{ display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+  .words{ font:500 13px var(--mono); color:var(--ink-soft); white-space:nowrap; }
+  .bar{ display:flex; height:12px; margin:8px 0 6px; border:1.5px solid var(--ink); background:var(--paper); }
+  .bar span{ height:100%; transition:flex-grow .25s ease; }
+  .bar span + span{ border-left:1.5px solid var(--ink); }
+  .legend{ display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12.5px; color:var(--ink-soft); }
+  .legend i{ display:inline-block; width:9px; height:9px; margin-right:5px; vertical-align:0; }
+  .balance-note{ font-size:13px; color:var(--ink-soft); margin:8px 0 0; min-height:2.6em; }
+
+  .export{ background:var(--surface); border:2px solid var(--ink); border-top:none; padding:14px 22px 16px; }
+  .export .row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .check{ display:inline-flex; gap:8px; align-items:center; font-size:13.5px; color:var(--ink-soft); cursor:pointer; margin-top:10px; }
+  .check input{ width:16px; height:16px; accent-color:var(--blue); }
+  .export-msg{ margin:10px 0 0; font-size:14px; }
+  .export-msg:empty{ display:none; }
+
+  footer{ border-top:3px solid var(--ink); padding-block:22px 36px; font-size:13px; color:var(--ink-soft); }
+  footer p{ margin:0 0 6px; max-width:80ch; }
+
+  .toast{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:50; background:var(--ink); color:var(--paper);
+    padding:10px 18px; border-radius:999px; font-size:14px; max-width:calc(100% - 32px); box-shadow:4px 4px 0 var(--pencil); }
+  .toast.err{ box-shadow:4px 4px 0 var(--red); }
+
+  @media print{
+    header.top, .band, #formCol, .export, footer, .toast, .balance{ display:none !important; }
+    main.layout{ display:block; padding:0; }
+    .preview{ position:static; }
+    .pv-body{ max-height:none; overflow:visible; border-width:1px; }
+    .arc{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top" id="top">
+  <div class="wrap top-inner">
+    <a class="brand" href="/"><b>Palisade Writers</b><span>Narrative Scratchpad</span></a>
+    <div class="account" id="account" hidden>
+      <span class="status" id="saveStatus" data-state="idle" aria-live="polite">Ready</span>
+      <span class="who" id="who"></span>
+      <button class="btn btn-sm btn-quiet" id="signOutBtn" type="button">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div class="gate" id="gate" hidden>
+  <div class="gate-card">
+    <p class="label">For Palisade Writers students</p>
+    <h1>Sketch the story only you can tell.</h1>
+    <p>A guided scratchpad for mapping the arc of an experience that shaped you, from the moment it began to who you are now. Your work saves to your account as you type.</p>
+    <div id="gsiButton"></div>
+    <p class="error" id="gateMsg" role="alert"></p>
+    <p class="fine">Signing in here opens your student workspace only. It doesn't give access to any Palisade Writers staff tools.</p>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <section class="band">
+    <div class="wrap">
+      <div>
+        <p class="label">A college-essay workbook</p>
+        <h1>Map the arc before you write <em>the essay.</em></h1>
+      </div>
+      <ol class="rules">
+        <li><span><b>Go small and specific.</b> One moment you could film says more than a summary of four years.</span></li>
+        <li><span><b>Show, then tell.</b> A few sentences of scene, a sentence or two of what it meant. Alternate.</span></li>
+        <li><span><b>Spend your words on the response.</b> The challenge is the setup; what you did and learned is the essay.</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <main class="wrap layout">
+    <section id="formCol" aria-label="Scratchpad">
+      <div class="card titlecard">
+        <div class="drafts">
+          <div class="sel">
+            <label class="label" for="draftSel">Your narratives</label>
+            <select id="draftSel"></select>
+          </div>
+          <button class="btn btn-sm" id="newBtn" type="button">New</button>
+          <button class="btn btn-sm btn-quiet btn-danger" id="delBtn" type="button">Delete</button>
+        </div>
+        <div class="field">
+          <label class="label" for="title">Working title</label>
+          <input type="text" id="title" data-field="title" maxlength="200" placeholder="e.g., Grandma's Rice" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="oneLine">The experience, in one sentence</label>
+          <span class="hint">Just the facts for now. You'll find what it means as you go.</span>
+          <textarea id="oneLine" data-field="oneLine" rows="2" placeholder="e.g., When my mom started working nights, I became the one who made dinner for my little brother and sister."></textarea>
+        </div>
+      </div>
+
+      <div id="sections"></div>
+    </section>
+
+    <aside class="preview" aria-label="Your arc, in draft">
+      <div class="pv-head">
+        <p class="label">Your arc, in draft</p>
+        <h2 id="pvTitle">Untitled narrative</h2>
+        <p id="pvOneLine" hidden></p>
+        <svg class="arc" id="arc" viewBox="0 0 320 70" role="img" aria-label="Story arc progress"></svg>
+      </div>
+      <div class="pv-body" id="pvBody"></div>
+      <div class="export">
+        <div class="balance">
+          <div class="balance-top">
+            <span class="label">Balance</span>
+            <span class="words" id="words">0 words</span>
+          </div>
+          <div class="bar" id="bar" aria-hidden="true">
+            <span style="background:var(--red)"></span><span style="background:var(--blue)"></span><span style="background:var(--pencil)"></span>
+          </div>
+          <div class="legend">
+            <span><i style="background:var(--red)"></i>The challenge</span>
+            <span><i style="background:var(--blue)"></i>What you did</span>
+            <span><i style="background:var(--pencil)"></i>What you learned</span>
+          </div>
+          <p class="balance-note" id="balanceNote"></p>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn btn-primary" id="copyBtn" type="button">Copy narrative</button>
+          <button class="btn" id="docBtn" type="button">Save as Google Doc</button>
+        </div>
+        <label class="check"><input type="checkbox" id="withPrompts" /> Include the prompts with my answers</label>
+        <p class="export-msg" id="exportMsg" aria-live="polite"></p>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p>Prompts draw on common admissions-essay advice: narrative structure (challenge, response, insight), the feelings-and-needs exercise, "show, then tell," and the "so what?" test for insight.</p>
+      <p>Your narratives are private to your Google account. Palisade Writers staff tools aren't reachable from this page.</p>
+    </div>
+  </footer>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+
+  // ---------- The scratchpad itself ----------
+  // Placeholders follow one invented example throughout, the way a worked
+  // example in a textbook does, so students can see how the pieces connect.
+  const SECTIONS = [
+    { id:'before', n:'I', title:'Before', c:'blue', blurb:'Where you started, so the reader can feel the change later.',
+      tips:[
+        ['Start in a place, not a thesis.', 'Admissions readers remember scenes, not summaries.'],
+        ['Plant the old belief.', 'Whatever you believed back then is what your ending will answer.'],
+      ],
+      fields:[
+        { id:'setting', label:'Set the scene: where were you, and when?', ph:'The summer before eighth grade, in our two-bedroom apartment off Route 9.' },
+        { id:'oldSelf', label:'Who were you then?', hint:'What did an ordinary day look like? What did you care about?', ph:'I was the kid who read at the dinner table and let everyone else worry about what was on it.' },
+        { id:'oldBelief', label:'What did you believe or assume back then?', ph:'That taking care of people was something grown-ups did.' },
+      ] },
+    { id:'moment', n:'II', title:'The moment it began', c:'red', blurb:'One scene you could film. Start in the middle of it.',
+      tips:[
+        ['Zoom in to a single minute.', 'Not "that year," but the Tuesday it began.'],
+        ['One sensory detail beats five adjectives.', 'A sound, a smell, an object someone was holding.'],
+        ['Dialogue is compression.', 'One line, well chosen, tells us who a person is to you.'],
+      ],
+      fields:[
+        { id:'moment', label:'The moment it started', hint:'Where were you standing? What happened, exactly?', ph:'Mom taped a new schedule to the fridge: NIGHT SHIFT, Mon–Fri, 7pm–7am.' },
+        { id:'sensory', label:'One concrete detail you still remember', ph:'the orange highlighter she used, and how the tape kept peeling off the freezer door' },
+        { id:'dialogue', label:'A line someone said', hint:'Optional, but a single real sentence can do a lot of work.', ph:'"You\'re in charge of Leo and Maya till I\'m home. Can you do that?"' },
+      ] },
+    { id:'challenge', n:'III', title:'The challenge', c:'red', blurb:'What made it hard, and what it cost. Be honest here; keep it brief.',
+      tips:[
+        ['Name feelings precisely.', 'List three to five, including the unflattering ones (resentful, embarrassed, relieved).'],
+        ['Then ask what you needed.', 'Under every feeling is a need: rest, respect, control, belonging. Needs point toward what you did next.'],
+        ['Don\'t overspend here.', 'Most first drafts give the challenge half the essay. Aim for about a third.'],
+      ],
+      fields:[
+        { id:'difficulty', label:'What made this hard?', ph:'I couldn\'t cook anything that didn\'t come out of a microwave, and Leo was a very picky six-year-old.' },
+        { id:'stakes', label:'What was at stake, for you or people you care about?', ph:'If the night fell apart, Mom would hear about it at 7am, after twelve hours on her feet.' },
+        { id:'feelings', label:'What did you feel?', hint:'Name it plainly. Mixed feelings are the interesting ones.', ph:'resentful, scared of messing up, and a little proud to be trusted' },
+        { id:'needs', label:'What did you need that you weren\'t getting?', ph:'sleep, some sense of control, and someone to tell me I was doing okay' },
+      ] },
+    { id:'response', n:'IV', title:'What you did', c:'blue', blurb:'Your response is the heart of the essay. Show the messy middle.',
+      tips:[
+        ['Show the first try, too.', 'A misstep, told plainly, makes you read as a real person.'],
+        ['Vulnerability in measured doses.', 'The hard moment should lead somewhere, not become the whole essay.'],
+        ['Actions, not adjectives.', 'Don\'t say you were determined; show what you did at 11pm on a school night.'],
+      ],
+      fields:[
+        { id:'firstTry', label:'Your first response', ph:'I made boxed mac and cheese four nights in a row.' },
+        { id:'misstep', label:'A mistake, or something that didn\'t work', ph:'When Maya asked for vegetables, I snapped at her, and she cried into her bowl.' },
+        { id:'action', label:'What you did next, on purpose', hint:'The deliberate choice. Give it room.', ph:'I started calling my grandmother on Sundays to learn one dish a week, and wrote each recipe on an index card.' },
+      ] },
+    { id:'turn', n:'V', title:'The turn', c:'pencil', blurb:'The moment something clicked, and what you understood because of it.',
+      tips:[
+        ['Pass the "so what?" test.', 'Insight should illuminate, not state the obvious. "I learned responsibility" is a label; what, exactly, did you learn about it?'],
+        ['Tie the insight to a scene.', 'Realizations usually arrive in small, ordinary moments. Find yours.'],
+      ],
+      fields:[
+        { id:'turnMoment', label:'The moment something clicked', ph:'Leo asked for "Grandma\'s rice" by name, and I realized I\'d made it without looking at the card.' },
+        { id:'realization', label:'What you understood that you hadn\'t before', ph:'Nobody hands you the job of caring for people once you\'re ready. You get ready by doing it, badly at first.' },
+      ] },
+    { id:'after', n:'VI', title:'After', c:'blue', blurb:'Who you are now. End in the present, on an image.',
+      tips:[
+        ['Show the new you in action.', 'What do you do now that the person in section I wouldn\'t have?'],
+        ['Echo your opening.', 'Returning to an image from the start makes the change visible without announcing it.'],
+        ['Values are the through-line.', 'Two or three words you could trace through your whole application.'],
+      ],
+      fields:[
+        { id:'nowAction', label:'What do you do differently now?', ph:'I still cook Sunday dinner, and now I\'m teaching Maya to fold dumplings.' },
+        { id:'values', label:'What values does this reveal?', hint:'Two or three words.', ph:'care, patience, making something from scratch' },
+        { id:'future', label:'How does it shape where you\'re headed?', hint:'Optional. Only if it\'s true, and only a sentence.', ph:'I want to study public health, because I\'ve seen how much a family\'s week depends on one person\'s schedule.' },
+        { id:'closingImage', label:'A closing image, in the present', ph:'The schedule is still on the fridge, but now there\'s an index card taped beside it: Tuesday, dumplings, Maya\'s turn.' },
+      ] },
+    { id:'sowhat', n:'VII', title:'So what?', c:'red', blurb:'The one thing a reader should remember about you. Write it last.',
+      tips:[
+        ['This is your thesis, not your first line.', 'It rarely appears word-for-word in the essay, but every paragraph should point to it.'],
+        ['Surprise yourself.', 'If it sounds like a poster in a guidance office, dig one layer deeper.'],
+      ],
+      fields:[
+        { id:'soWhat', label:'In one or two sentences, what does this story show about you?', ph:'I\'m someone who learns by doing the thing before I feel ready, and who makes room for others to learn that way too.' },
+      ] },
+  ];
+  const ALL_FIELDS = ['title', 'oneLine', ...SECTIONS.flatMap(s => s.fields.map(f => f.id))];
+  const LABELS = { oneLine:'The experience, in one sentence' };
+  SECTIONS.forEach(s => s.fields.forEach(f => { LABELS[f.id] = f.label; }));
+
+  function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function renderSections(){
+    $('sections').innerHTML = SECTIONS.map(s => `
+      <section class="sec ${s.c}" id="sec-${s.id}" aria-labelledby="h-${s.id}">
+        <div class="sec-head">
+          <span class="numeral" aria-hidden="true">${s.n}</span>
+          <div class="sec-title"><h2 id="h-${s.id}">${esc(s.title)}</h2><p>${esc(s.blurb)}</p></div>
+        </div>
+        <div class="sec-body">
+          <details class="tip"><summary>Tips for this part</summary>
+            <ul>${s.tips.map(([b, t]) => `<li><b>${esc(b)}</b> ${esc(t)}</li>`).join('')}</ul>
+          </details>
+          ${s.fields.map(f => `
+            <div class="field">
+              <label for="${f.id}">${esc(f.label)}</label>
+              <span class="hint" id="hint-${f.id}">${esc(f.hint || '')}</span>
+              <textarea id="${f.id}" data-field="${f.id}" rows="3" placeholder="e.g., ${esc(f.ph)}"${f.hint ? ` aria-describedby="hint-${f.id}"` : ''}></textarea>
+            </div>`).join('')}
+        </div>
+      </section>`).join('');
+  }
+
+  // ---------- Assembling the draft ----------
+  const trimmed = s => (s || '').trim().replace(/\s+/g, ' ');
+  // Lowercase a leading word so an answer can follow a stem ("I believed that…"),
+  // but leave "I", acronyms and proper-looking words alone.
+  function lc(s){
+    if(!s) return s;
+    if(/^I\b/.test(s) || /^[A-Z]{2}/.test(s)) return s;
+    return s.charAt(0).toLowerCase() + s.slice(1);
+  }
+  function sent(s){ return !s ? s : (/[.!?…"'”’)]$/.test(s) ? s : s + '.'); }
+  function quote(s){ return /^["“]/.test(s) ? s : '“' + s + '”'; }
+
+  // Each piece is [stem, fieldId, transform]; empty fields become blanks in the
+  // preview and simply drop out of the copied text.
+  const ARC = [
+    { sec:'before', c:'blue', parts:[['', 'setting'], ['', 'oldSelf'], ['Back then, I believed ', 'oldBelief', lc]] },
+    { sec:'moment', c:'red', parts:[['Then: ', 'moment'], ['I still remember ', 'sensory', lc], ['', 'dialogue', quote]] },
+    { sec:'challenge', c:'red', parts:[['It was hard because ', 'difficulty', lc], ['What was at stake: ', 'stakes', lc], ['I felt ', 'feelings', lc], ['What I needed was ', 'needs', lc]] },
+    { sec:'response', c:'blue', parts:[['At first, ', 'firstTry', lc], ['', 'misstep'], ['So ', 'action', lc]] },
+    { sec:'turn', c:'pencil', parts:[['Then something clicked: ', 'turnMoment', lc], ['I realized ', 'realization', lc]] },
+    { sec:'after', c:'blue', parts:[['Now, ', 'nowAction', lc], ['What this says I value: ', 'values', lc], ['', 'future'], ['', 'closingImage']] },
+  ];
+  const BLANK = { setting:'where and when', oldSelf:'who you were then', oldBelief:'what you assumed', moment:'the moment it began',
+    sensory:'a detail you remember', dialogue:'a line someone said', difficulty:'what made it hard', stakes:'what was at stake',
+    feelings:'what you felt', needs:'what you needed', firstTry:'your first response', misstep:'a misstep', action:'what you did on purpose',
+    turnMoment:'the moment it clicked', realization:'what you understood', nowAction:'what you do now', values:'your values',
+    future:'where you\'re headed', closingImage:'a closing image' };
+
+  let state = {};
+
+  function sectionText(a, withBlanks){
+    const out = [];
+    for(const [stem, id, fn] of a.parts){
+      const v = trimmed(state[id]);
+      if(v) out.push(withBlanks ? esc(sent(stem + (fn ? fn(v) : v))) : sent(stem + (fn ? fn(v) : v)));
+      else if(withBlanks) out.push(`${esc(stem)}<span class="blank">[${esc(BLANK[id])}]</span>`);
+    }
+    return out.join(' ');
+  }
+  const secTitle = id => SECTIONS.find(s => s.id === id).title;
+  const words = s => (trimmed(s).match(/\S+/g) || []).length;
+
+  function renderPreview(){
+    $('pvTitle').textContent = trimmed(state.title) || 'Untitled narrative';
+    const one = trimmed(state.oneLine);
+    $('pvOneLine').hidden = !one;
+    $('pvOneLine').textContent = one;
+    let html = ARC.map(a => `<div class="pv-sec" style="--c:var(--${a.c})"><h3><i></i>${esc(secTitle(a.sec))}</h3><p>${sectionText(a, true)}</p></div>`).join('');
+    const sw = trimmed(state.soWhat);
+    html += `<div class="pv-sowhat">${sw ? esc(sent(sw)) : '<span class="blank">[So what? The one thing a reader should remember about you.]</span>'}</div>`;
+    $('pvBody').innerHTML = html;
+    renderArc();
+    renderBalance();
+  }
+
+  // Seven stations along a rising-then-resolving curve; each fills in once its section has any writing.
+  function renderArc(){
+    const pts = [[16,58],[60,52],[104,40],[148,26],[192,12],[244,22],[300,30]];
+    const d = 'M' + pts.map(p => p.join(',')).join(' L');
+    $('arc').innerHTML = `<path d="${d}"/>` + SECTIONS.map((s, i) => {
+      const done = s.fields.some(f => trimmed(state[f.id]));
+      const [x, y] = pts[i];
+      return `<circle cx="${x}" cy="${y}" r="5.5" class="${done ? 'done' : ''}"><title>${esc(s.title)}${done ? ' ✓' : ''}</title></circle>`
+        + `<text x="${x}" y="${y < 30 ? y + 20 : y - 11}">${s.n}</text>`;
+    }).join('');
+  }
+
+  // College Essay Guy's narrative structure: roughly equal thirds for the challenge,
+  // the response, and what you learned.
+  function renderBalance(){
+    const sum = ids => ids.reduce((n, id) => n + words(state[id]), 0);
+    const ch = sum(['moment','sensory','dialogue','difficulty','stakes','feelings','needs']);
+    const di = sum(['firstTry','misstep','action']);
+    const le = sum(['turnMoment','realization','nowAction','values','future','closingImage','soWhat']);
+    const total = ALL_FIELDS.filter(f => f !== 'title').reduce((n, id) => n + words(state[id]), 0);
+    $('words').textContent = total.toLocaleString() + (total === 1 ? ' word' : ' words') + ' of notes';
+    const spans = $('bar').children;
+    [ch, di, le].forEach((v, i) => { spans[i].style.flex = String(v || (ch + di + le ? 0 : 1)); });
+    const t = ch + di + le;
+    let note = 'Aim for roughly even thirds. The Common App essay caps out at 650 words, so about 200 each.';
+    if(t >= 60){
+      if(ch / t > 0.45) note = 'The challenge is taking up most of your space. Try trimming it and giving more to what you did about it.';
+      else if(di / t < 0.2) note = 'What you did is the thinnest part. That\'s usually where the reader learns the most about you.';
+      else if(le / t < 0.2) note = 'Give more room to what you learned. Insight is what turns a story into a college essay.';
+      else note = 'Nicely balanced. Keep an eye on this as you write the full draft.';
+    }
+    $('balanceNote').textContent = note;
+  }
+
+  // ---------- Export ----------
+  function exportParts(){
+    const withPrompts = $('withPrompts').checked;
+    const title = trimmed(state.title) || 'Untitled narrative';
+    const one = trimmed(state.oneLine);
+    const secs = ARC.map(a => ({ title: secTitle(a.sec), text: sectionText(a, false) })).filter(s => s.text);
+    const soWhat = trimmed(state.soWhat);
+    const prompts = withPrompts ? ALL_FIELDS.filter(f => f !== 'title' && trimmed(state[f]))
+      .map(f => ({ q: LABELS[f], a: (state[f] || '').trim() })) : [];
+    return { title, one, secs, soWhat, prompts };
+  }
+  function exportText(){
+    const p = exportParts();
+    const lines = [p.title.toUpperCase(), ''];
+    if(p.one) lines.push(p.one, '');
+    p.secs.forEach(s => lines.push(s.title.toUpperCase(), s.text, ''));
+    if(p.soWhat) lines.push('SO WHAT?', sent(p.soWhat), '');
+    if(p.prompts.length){
+      lines.push('— SCRATCHPAD NOTES —', '');
+      p.prompts.forEach(x => lines.push(x.q, x.a, ''));
+    }
+    return lines.join('\n').trim() + '\n';
+  }
+  function exportHTML(){
+    const p = exportParts();
+    const para = s => esc(s).replace(/\n/g, '<br>');
+    let h = `<h1>${esc(p.title)}</h1>`;
+    if(p.one) h += `<p><i>${esc(p.one)}</i></p>`;
+    p.secs.forEach(s => { h += `<h2>${esc(s.title)}</h2><p>${esc(s.text)}</p>`; });
+    if(p.soWhat) h += `<h2>So what?</h2><p><b>${esc(sent(p.soWhat))}</b></p>`;
+    if(p.prompts.length){
+      h += '<h2>Scratchpad notes</h2>';
+      p.prompts.forEach(x => { h += `<p><b>${esc(x.q)}</b><br>${para(x.a)}</p>`; });
+    }
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(p.title)}</title></head><body>${h}</body></html>`;
+  }
+
+  async function copyRich(){
+    const text = exportText(), html = exportHTML();
+    try {
+      if(window.ClipboardItem && navigator.clipboard.write){
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/plain': new Blob([text], { type:'text/plain' }),
+          'text/html': new Blob([html], { type:'text/html' }),
+        })]);
+      } else await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Older browsers / denied permission: fall back to a hidden textarea.
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    }
+  }
+
+  // Google Doc: a drive.file token (can only see files this page creates) and a
+  // Drive upload that converts our HTML into a native Doc.
+  let tokenClient = null, accessToken = null, tokenExpires = 0;
+  function getDriveToken(){
+    return new Promise((resolve, reject) => {
+      if(accessToken && Date.now() < tokenExpires) return resolve(accessToken);
+      if(!(window.google && google.accounts && google.accounts.oauth2)) return reject(new Error('Google isn\'t loaded yet.'));
+      tokenClient = tokenClient || google.accounts.oauth2.initTokenClient({
+        client_id: config.googleClientId,
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        hint: me.email,
+        callback: () => {},
+      });
+      tokenClient.callback = resp => {
+        if(resp.error) return reject(new Error(resp.error_description || resp.error));
+        accessToken = resp.access_token;
+        tokenExpires = Date.now() + (Number(resp.expires_in) - 60) * 1000;
+        resolve(accessToken);
+      };
+      tokenClient.error_callback = err => reject(new Error(err && err.type === 'popup_closed' ? 'The Google window was closed.' : 'Google didn\'t grant access.'));
+      tokenClient.requestAccessToken();
+    });
+  }
+  async function saveGoogleDoc(){
+    const btn = $('docBtn');
+    btn.disabled = true;
+    showExport('Asking Google for permission to create a Doc…');
+    try {
+      const token = await getDriveToken();
+      showExport('Creating your Google Doc…');
+      const boundary = 'pw' + Math.random().toString(36).slice(2);
+      const meta = { name: exportParts().title + ' — narrative scratchpad', mimeType: 'application/vnd.google-apps.document' };
+      const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n`
+        + `--${boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n${exportHTML()}\r\n--${boundary}--`;
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink', {
+        method:'POST', headers:{ Authorization:'Bearer ' + token, 'Content-Type':'multipart/related; boundary=' + boundary }, body,
+      });
+      if(res.status === 401){ accessToken = null; }
+      if(!res.ok) throw new Error('Google Drive said no (' + res.status + ').');
+      const file = await res.json();
+      const link = file.webViewLink || ('https://docs.google.com/document/d/' + file.id + '/edit');
+      showExport(`Saved to your Google Drive. <a href="${esc(link)}" target="_blank" rel="noopener">Open the Doc →</a>`, true);
+      window.open(link, '_blank', 'noopener');
+    } catch(err){
+      showExport(`${esc(err.message)} You can still <a href="#" id="docFallback">copy it and paste into a new Google Doc</a>.`, true);
+      $('docFallback').addEventListener('click', async e => {
+        e.preventDefault();
+        // Open synchronously inside the click so popup blockers allow it.
+        const w = window.open('https://docs.new', '_blank', 'noopener');
+        await copyRich();
+        showExport(w ? 'Copied. Paste it into the new Doc (⌘V / Ctrl+V).' : 'Copied. Open docs.new and paste.');
+      });
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  function showExport(msg, html){ html ? ($('exportMsg').innerHTML = msg) : ($('exportMsg').textContent = msg); }
+
+  // ---------- API + saving ----------
+  async function api(path, opts = {}){
+    const res = await fetch('/api/' + path, {
+      method: opts.method || 'GET',
+      headers: opts.body !== undefined ? { 'Content-Type':'application/json' } : {},
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      credentials:'same-origin',
+    });
+    let data = null;
+    try { data = await res.json(); } catch {}
+    if(!res.ok){ const e = new Error((data && data.error) || 'Request failed (' + res.status + ')'); e.status = res.status; throw e; }
+    return data;
+  }
+
+  let config = {}, me = null, list = [], currentId = null, saveTimer = null, dirty = false, saving = null;
+  const LOCAL = id => 'pwStudentDraft.' + id;
+
+  function setStatus(s, text){ const el = $('saveStatus'); el.dataset.state = s; el.textContent = text; }
+  const clock = () => new Date().toLocaleTimeString([], { hour:'numeric', minute:'2-digit' });
+
+  function readForm(){
+    const d = {};
+    ALL_FIELDS.forEach(f => { const el = document.querySelector(`[data-field="${f}"]`); if(el && el.value) d[f] = el.value; });
+    return d;
+  }
+  function fillForm(d){
+    ALL_FIELDS.forEach(f => { const el = document.querySelector(`[data-field="${f}"]`); if(el) el.value = d[f] || ''; });
+    state = { ...d };
+    renderPreview();
+  }
+
+  function scheduleSave(){
+    dirty = true;
+    setStatus('saving', 'Editing…');
+    try { localStorage.setItem(LOCAL(currentId), JSON.stringify(state)); } catch {}
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 900);
+  }
+  async function save(){
+    if(!currentId || !dirty) return;
+    if(saving) { await saving; if(!dirty) return; }
+    dirty = false;
+    const id = currentId, data = { ...state }, title = trimmed(data.title);
+    const { title: _t, ...fields } = data;
+    setStatus('saving', 'Saving…');
+    saving = api('student/narratives/' + id, { method:'PUT', body:{ title, data: fields } })
+      .then(() => {
+        setStatus('saved', 'Saved ' + clock());
+        try { localStorage.removeItem(LOCAL(id)); } catch {}
+        const item = list.find(n => n.id === id);
+        if(item && item.title !== title){ item.title = title; renderDraftSel(); }
+      })
+      .catch(err => {
+        dirty = true;
+        if(err.status === 401){ setStatus('error', 'Signed out — sign in to save'); return; }
+        setStatus('error', 'Not saved — kept on this device');
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(save, 8000);
+      })
+      .finally(() => { saving = null; });
+    await saving;
+  }
+  window.addEventListener('beforeunload', e => { if(dirty){ save(); e.preventDefault(); } });
+
+  function renderDraftSel(){
+    $('draftSel').innerHTML = list.map(n => `<option value="${esc(n.id)}"${n.id === currentId ? ' selected' : ''}>${esc(n.title || 'Untitled narrative')}</option>`).join('');
+    $('delBtn').disabled = list.length <= 1;
+  }
+
+  async function openNarrative(id){
+    await save();
+    const n = await api('student/narratives/' + id);
+    currentId = id;
+    let d = { title: n.title, ...n.data };
+    // A local copy only exists if the last save to the server didn't land; prefer it.
+    try { const local = localStorage.getItem(LOCAL(id)); if(local){ d = JSON.parse(local); dirty = true; } } catch {}
+    fillForm(d);
+    renderDraftSel();
+    try { localStorage.setItem('pwStudentLast', id); } catch {}
+    if(dirty) save(); else setStatus('saved', 'Saved');
+  }
+
+  async function newNarrative(){
+    await save();
+    const { id } = await api('student/narratives', { method:'POST', body:{ title:'', data:{} } });
+    list.unshift({ id, title:'' });
+    await openNarrative(id);
+    $('title').focus();
+  }
+
+  async function start(){
+    $('account').hidden = false;
+    $('who').textContent = me.name || me.email;
+    $('who').title = me.email;
+    renderSections();
+    document.querySelectorAll('[data-field]').forEach(el => el.addEventListener('input', () => {
+      state[el.dataset.field] = el.value;
+      renderPreview();
+      scheduleSave();
+    }));
+    $('app').hidden = false;
+    list = await api('student/narratives');
+    if(!list.length){ const { id } = await api('student/narratives', { method:'POST', body:{ title:'', data:{} } }); list = [{ id, title:'' }]; }
+    let last = null; try { last = localStorage.getItem('pwStudentLast'); } catch {}
+    await openNarrative(list.some(n => n.id === last) ? last : list[0].id);
+  }
+
+  $('draftSel').addEventListener('change', e => openNarrative(e.target.value).catch(err => toast(err.message, true)));
+  $('newBtn').addEventListener('click', () => newNarrative().catch(err => toast(err.message, true)));
+  $('delBtn').addEventListener('click', async () => {
+    const item = list.find(n => n.id === currentId);
+    if(!confirm(`Delete "${(item && item.title) || 'Untitled narrative'}"? This can't be undone.`)) return;
+    try {
+      clearTimeout(saveTimer); dirty = false;
+      await api('student/narratives/' + currentId, { method:'DELETE' });
+      try { localStorage.removeItem(LOCAL(currentId)); } catch {}
+      list = list.filter(n => n.id !== currentId);
+      await openNarrative(list[0].id);
+      toast('Deleted.');
+    } catch(err){ toast(err.message, true); }
+  });
+  $('copyBtn').addEventListener('click', async () => {
+    const ok = await copyRich();
+    toast(ok ? 'Copied. Paste it anywhere.' : 'Couldn\'t copy. Try selecting the draft instead.', !ok);
+  });
+  $('docBtn').addEventListener('click', saveGoogleDoc);
+  $('signOutBtn').addEventListener('click', async () => {
+    await save();
+    await api('student/logout', { method:'POST', body:{} }).catch(() => {});
+    if(window.google && google.accounts){
+      google.accounts.id.disableAutoSelect();
+      if(accessToken) google.accounts.oauth2.revoke(accessToken, () => {});
+    }
+    location.reload();
+  });
+
+  let toastTimer;
+  function toast(msg, isErr){
+    let el = document.querySelector('.toast');
+    if(!el){ el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); }
+    el.textContent = msg; el.classList.toggle('err', !!isErr); el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, isErr ? 6000 : 2500);
+  }
+
+  // Header goes translucent once you scroll past the top.
+  addEventListener('scroll', () => $('top').classList.toggle('scrolled', scrollY > 8), { passive:true });
+
+  // ---------- Sign-in ----------
+  function loadGoogle(){
+    return new Promise((resolve, reject) => {
+      if(window.google && google.accounts) return resolve();
+      const s = document.createElement('script');
+      s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
+      s.onload = resolve; s.onerror = () => reject(new Error('Could not load Google sign-in.'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function boot(){
+    config = await api('config');
+    try { me = await api('student/me'); }
+    catch(err){ if(err.status !== 401) throw err; }
+    if(config.googleClientId) loadGoogle().catch(() => {}); // also needed later for Save as Google Doc
+    if(me) return start();
+
+    $('gate').hidden = false;
+    if(config.devLogin){
+      // Local `wrangler dev` only (DEV_MODE in .dev.vars); the deployed site never offers this.
+      $('gsiButton').innerHTML = '<form id="devForm"><input type="email" id="devEmail" placeholder="dev: sign in as email" required><button class="btn btn-primary">Go</button></form>';
+      $('devForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        try { await api('student/dev-login', { method:'POST', body:{ email: $('devEmail').value } }); location.reload(); }
+        catch(err){ $('gateMsg').textContent = err.message; }
+      });
+      return;
+    }
+    if(!config.googleClientId){ $('gateMsg').textContent = 'Google sign-in has not been set up yet.'; return; }
+    await loadGoogle();
+    google.accounts.id.initialize({
+      client_id: config.googleClientId,
+      callback: async resp => {
+        $('gateMsg').textContent = '';
+        try {
+          await api('student/login', { method:'POST', body:{ credential: resp.credential } });
+          me = await api('student/me');
+          $('gate').hidden = true;
+          start().catch(err => toast(err.message, true));
+        } catch(err){ $('gateMsg').textContent = err.message; }
+      },
+    });
+    google.accounts.id.renderButton($('gsiButton'), { theme:'outline', size:'large', text:'signin_with', shape:'pill' });
+  }
+
+  boot().catch(err => { $('gate').hidden = false; $('gateMsg').textContent = err.message; });
+})();
+</script>
+</body>
+</html>

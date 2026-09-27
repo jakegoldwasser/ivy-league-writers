@@ -127,6 +127,12 @@ async function handleApi(request, env, url) {
     return json({ ok: true }, 200, { 'Set-Cookie': await sessionCookie(env, user.email) });
   }
 
+  // Students (/student) are handled entirely separately and return before the
+  // staff session is ever consulted. See studentRoutes().
+  if (path === '/api/student' || path.startsWith('/api/student/')) {
+    return studentRoutes(request, env, path.slice(12).split('/').filter(Boolean), url);
+  }
+
   const user = await currentUser(request, env);
   if (!user) throw new HttpError(401, 'Please sign in.');
 
@@ -205,29 +211,39 @@ async function hmacKey(env) {
   return crypto.subtle.importKey('raw', new TextEncoder().encode(row.value), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
-async function sessionCookie(env, email) {
+// `purpose` is mixed into what gets signed, so a student cookie's signature is
+// never valid as a staff cookie (or vice versa) even if someone renames it.
+async function signedValue(env, email, purpose) {
   const payload = b64urlEncode(new TextEncoder().encode(JSON.stringify({ e: email, x: Date.now() + SESSION_DAYS * 864e5 })));
-  const sig = await crypto.subtle.sign('HMAC', await hmacKey(env), new TextEncoder().encode(payload));
-  return `${COOKIE}=${payload}.${b64urlEncode(new Uint8Array(sig))}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`;
+  const sig = await crypto.subtle.sign('HMAC', await hmacKey(env), new TextEncoder().encode(purpose + payload));
+  return `${payload}.${b64urlEncode(new Uint8Array(sig))}`;
 }
 
-async function currentUser(request, env) {
+async function readSigned(request, env, name, purpose) {
   const cookies = Object.fromEntries((request.headers.get('Cookie') || '').split(';').map(c => {
     const i = c.indexOf('=');
     return [c.slice(0, i).trim(), c.slice(i + 1).trim()];
   }));
-  const raw = cookies[COOKIE];
+  const raw = cookies[name];
   if (!raw || !raw.includes('.')) return null;
   const [payload, sig] = raw.split('.');
   let ok = false;
   try {
-    ok = await crypto.subtle.verify('HMAC', await hmacKey(env), b64urlDecode(sig), new TextEncoder().encode(payload));
+    ok = await crypto.subtle.verify('HMAC', await hmacKey(env), b64urlDecode(sig), new TextEncoder().encode(purpose + payload));
   } catch { return null; }
   if (!ok) return null;
   const data = JSON.parse(new TextDecoder().decode(b64urlDecode(payload)));
-  if (!(data.x > Date.now())) return null;
+  return data.x > Date.now() ? data.e : null;
+}
+
+async function sessionCookie(env, email) {
+  return `${COOKIE}=${await signedValue(env, email, '')}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`;
+}
+
+async function currentUser(request, env) {
+  const email = await readSigned(request, env, COOKIE, '');
   // Re-checked on every request, so deactivating someone takes effect immediately.
-  return loadUser(env, data.e);
+  return email ? loadUser(env, email) : null;
 }
 
 // Founders listed in FOUNDER_EMAILS get an account automatically the first time.
@@ -239,6 +255,111 @@ async function loadUser(env, email) {
   if (!founders.includes(email)) return null;
   await env.DB.prepare("INSERT OR IGNORE INTO users (email, role) VALUES (?, 'founder')").bind(email).run();
   return env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
+}
+
+// ---------- student routes (/api/student/*) ----------
+// Any verified Google account can sign in as a student. Students get their own
+// cookie (pw_student, scoped to /api/student, signed with a different purpose
+// than pw_session) and their own table, so a student session can only ever
+// reach the routes below — never /api/me, /api/my/* or /api/admin/*. Signing in
+// here also never creates or touches a staff `users` row.
+
+const STUDENT_COOKIE = 'pw_student';
+const STUDENT_PURPOSE = 'student:';
+const MAX_NARRATIVES = 30;
+const MAX_NARRATIVE_BYTES = 100_000;
+
+async function studentCookie(env, email) {
+  return `${STUDENT_COOKIE}=${await signedValue(env, email, STUDENT_PURPOSE)}; Path=/api/student; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`;
+}
+
+async function upsertStudent(env, email, name) {
+  await env.DB.prepare(`INSERT INTO students (email, name) VALUES (?, ?)
+    ON CONFLICT(email) DO UPDATE SET last_seen_at = datetime('now'), name = CASE WHEN students.name = '' THEN excluded.name ELSE students.name END`)
+    .bind(email, name || '').run();
+}
+
+async function studentRoutes(request, env, seg, url) {
+  const method = request.method;
+
+  if (seg[0] === 'login' && method === 'POST') {
+    if (!env.GOOGLE_CLIENT_ID) throw new HttpError(503, 'Google sign-in is not configured yet.');
+    const { credential } = await body(request);
+    if (typeof credential !== 'string') bad('Missing Google credential.');
+    const claims = await verifyGoogleToken(credential, env.GOOGLE_CLIENT_ID);
+    const email = claims.email.toLowerCase();
+    await upsertStudent(env, email, String(claims.name || '').slice(0, 120));
+    return json({ ok: true }, 200, { 'Set-Cookie': await studentCookie(env, email) });
+  }
+  if (seg[0] === 'dev-login' && env.DEV_MODE === '1' && method === 'POST') {
+    const email = String((await body(request)).email || '').trim().toLowerCase();
+    if (!email.includes('@')) bad('Enter an email.');
+    await upsertStudent(env, email, '');
+    return json({ ok: true }, 200, { 'Set-Cookie': await studentCookie(env, email) });
+  }
+  if (seg[0] === 'logout' && method === 'POST') {
+    return json({ ok: true }, 200, { 'Set-Cookie': `${STUDENT_COOKIE}=; Path=/api/student; HttpOnly; Secure; SameSite=Lax; Max-Age=0` });
+  }
+
+  const email = await readSigned(request, env, STUDENT_COOKIE, STUDENT_PURPOSE);
+  const student = email && await env.DB.prepare('SELECT email, name FROM students WHERE email = ?').bind(email).first();
+  if (!student) throw new HttpError(401, 'Please sign in.');
+
+  if (seg[0] === 'me' && seg.length === 1 && method === 'GET') return json(student);
+
+  if (seg[0] !== 'narratives') throw new HttpError(404, 'Not found.');
+
+  if (seg.length === 1 && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      'SELECT id, title, updated_at FROM student_narratives WHERE student_email = ? ORDER BY updated_at DESC',
+    ).bind(email).all();
+    return json(results);
+  }
+  if (seg.length === 1 && method === 'POST') {
+    const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM student_narratives WHERE student_email = ?').bind(email).first();
+    if (count.n >= MAX_NARRATIVES) bad(`You can keep up to ${MAX_NARRATIVES} narratives. Delete one to start another.`);
+    const b = await body(request);
+    const id = crypto.randomUUID();
+    const data = narrativeData(b.data);
+    await env.DB.prepare('INSERT INTO student_narratives (id, student_email, title, data) VALUES (?, ?, ?, ?)')
+      .bind(id, email, str(b.title, 200, 'Title'), data).run();
+    return json({ id });
+  }
+  if (seg.length === 2) {
+    // Every lookup is keyed on (id, student_email), so one student can never read or change another's.
+    const id = seg[1];
+    if (method === 'GET') {
+      const row = await env.DB.prepare('SELECT id, title, data, updated_at FROM student_narratives WHERE id = ? AND student_email = ?')
+        .bind(id, email).first();
+      if (!row) throw new HttpError(404, 'That narrative was not found.');
+      return json({ ...row, data: JSON.parse(row.data) });
+    }
+    if (method === 'PUT') {
+      const b = await body(request);
+      const r = await env.DB.prepare(`UPDATE student_narratives SET title = ?, data = ?, updated_at = datetime('now')
+        WHERE id = ? AND student_email = ?`).bind(str(b.title, 200, 'Title'), narrativeData(b.data), id, email).run();
+      if (!r.meta.changes) throw new HttpError(404, 'That narrative was not found.');
+      return json({ ok: true, updated_at: new Date().toISOString() });
+    }
+    if (method === 'DELETE') {
+      await env.DB.prepare('DELETE FROM student_narratives WHERE id = ? AND student_email = ?').bind(id, email).run();
+      return json({ ok: true });
+    }
+  }
+  throw new HttpError(404, 'Not found.');
+}
+
+// Only a flat map of short field ids to strings is stored, so the blob stays inert.
+function narrativeData(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) bad('Invalid narrative.');
+  const out = {};
+  for (const [k, val] of Object.entries(v)) {
+    if (!/^[a-zA-Z0-9_]{1,40}$/.test(k) || typeof val !== 'string') bad('Invalid narrative.');
+    out[k] = val;
+  }
+  const s = JSON.stringify(out);
+  if (s.length > MAX_NARRATIVE_BYTES) bad('This narrative is too long to save. Try trimming a few fields.');
+  return s;
 }
 
 // ---------- tutor routes (/api/my/*): only ever touch the signed-in user's own sessions ----------
