@@ -46,6 +46,7 @@
     body > *:not(#printArea){ display:none !important; }
     #printArea{ display:block !important; }
     #printArea .doc{ border:none; box-shadow:none; padding:0; }
+    #printArea .doc + .doc{ page-break-before:always; }
     @page{ margin:0.6in; }
   }
   #printArea{ display:none; }
@@ -113,6 +114,10 @@
       <h2>Payroll by tutor</h2>
       <div class="tablewrap"><table id="payrollTable"></table></div>
       <p class="small muted" id="payrollNote" hidden>Some sessions have no pay rate yet, so they're not counted in pay. Set a default pay rate under Team &amp; clients, or edit the rate on the session below.</p>
+      <p class="small muted">Prints one pay stub per tutor shown above, for <span id="payrollMonth"></span>, from whatever's currently logged. Nothing is saved or locked — sessions stay editable within the usual 31-day window.</p>
+      <div class="row end">
+        <button class="btn btn-primary" id="genPaystubsBtn">Generate Paystubs</button>
+      </div>
     </div>
 
     <div class="card">
@@ -130,7 +135,7 @@
         <div><label class="lbl" for="iClient">Client</label><select id="iClient"></select></div>
         <div><label class="lbl" for="iMonth">Month of sessions</label><input type="month" id="iMonth"></div>
         <div><label class="lbl" for="iIssued">Invoice date</label><input type="date" id="iIssued"></div>
-        <div><label class="lbl" for="iDue">Payment due</label><input type="text" id="iDue" value="Within 48 hours of this invoice"></div>
+        <div><label class="lbl" for="iDue">Payment due</label><input type="text" id="iDue" value="Within 7 days of this invoice"></div>
       </div>
     </div>
 
@@ -157,6 +162,16 @@
       <div id="iPreview"></div>
     </div>
     <p class="card empty" id="builderEmpty">Choose a client and month to see their sessions that haven't been invoiced yet.</p>
+
+    <div class="card" id="bulkInvoice" hidden>
+      <h2>Generate all invoices</h2>
+      <p class="small muted">Creates one invoice per active client with uninvoiced sessions in <span id="bulkInvMonth"></span>, using each client's configured rate. A client missing a rate is skipped and listed below.</p>
+      <label class="row small"><input type="checkbox" id="bulkLlc"> LLC approved</label>
+      <div class="row end" style="margin-top:10px;">
+        <button class="btn btn-primary" id="bulkInvoiceBtn">Generate All Invoices</button>
+      </div>
+      <div id="bulkInvoiceResult"></div>
+    </div>
 
     <div class="card">
       <div class="row" style="margin-bottom:12px;">
@@ -241,7 +256,7 @@
     const keep = (id, html) => { const v = $(id).value; $(id).innerHTML = html; if([...$(id).options].some(o => o.value === v)) $(id).value = v; };
     keep('fTutor', '<option value="">All tutors</option>' + tutorOpts);
     keep('fClient', '<option value="">All clients</option>' + clientOpts);
-    keep('iClient', '<option value="">Choose a client…</option>' + clientOpts);
+    keep('iClient', '<option value="">Choose a client…</option><option value="all">All clients</option>' + clientOpts);
     renderTeam();
     renderClients();
   }
@@ -260,6 +275,7 @@
     if($('fClient').value) p.set('client', $('fClient').value);
     if($('fStatus').value) p.set('status', $('fStatus').value);
     try { rows = await api('admin/sessions?' + p); } catch(err){ toast(err.message, true); rows = []; }
+    $('payrollMonth').textContent = monthLabel($('fMonth').value || thisMonth());
     renderSessions();
   }
 
@@ -347,6 +363,54 @@
     URL.revokeObjectURL(a.href);
   });
 
+  // ================= PAYSTUBS =================
+  // Fully stateless: reads whatever's currently in `rows` (the filtered sessions
+  // already loaded for Payroll above) and prints a doc per tutor. Nothing is
+  // saved or locked — a session stays editable within the usual 31-day window.
+  $('genPaystubsBtn').addEventListener('click', () => {
+    const eligible = rows.filter(s => s.pay_rate !== null);
+    if(!eligible.length){ toast('No sessions with a pay rate to generate from.', true); return; }
+    const byTutor = new Map();
+    for(const s of eligible){
+      const arr = byTutor.get(s.tutor_email) || [];
+      arr.push(s);
+      byTutor.set(s.tutor_email, arr);
+    }
+    const month = $('fMonth').value || thisMonth();
+    const docs = [...byTutor.entries()].map(([email, sessions]) => paystubDoc(tutorName(email), month, sessions));
+    $('printArea').innerHTML = docs.join('');
+    const prevTitle = document.title;
+    document.title = 'Palisade_Paystubs_' + month;
+    window.print();
+    document.title = prevTitle;
+  });
+
+  function paystubDoc(tutor, period, sessions){
+    const lines = sessions.slice().sort((a, b) => a.date.localeCompare(b.date));
+    const total = round2(lines.reduce((sum, s) => sum + payOf(s), 0));
+    const lineRows = lines.map(s => `<tr>
+      <td style="white-space:nowrap">${esc(fmtDate(s.date, { month: 'short', day: 'numeric' }))}</td>
+      <td>${esc(s.service || 'Tutoring session')} — ${esc(s.client_name)}</td>
+      <td class="num">${esc(duration(s.minutes))}</td>
+      <td class="num invnum">${money(s.pay_rate)}</td>
+      <td class="num invnum">${money(payOf(s))}</td></tr>`).join('');
+    return `<div class="doc">
+      <h2 class="doctitle">Palisade Writers</h2>
+      <p class="docsub">Pay stub</p>
+      <div class="invoice">
+        <div class="invhead"><h4>Pay stub</h4>
+          <span class="invno">Generated ${esc(fmtDate(localISO(), { year: 'numeric', month: 'long', day: 'numeric' }))}</span></div>
+        <div class="invrow"><span>Paid to</span><span>${esc(tutor)}</span></div>
+        <div class="invrow"><span>For sessions in</span><span>${esc(monthLabel(period))}</span></div>
+        <table>
+          <thead><tr><th>Date</th><th>Description</th><th class="num">Length</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+          <tbody>${lineRows || '<tr><td colspan="5" class="muted">No sessions.</td></tr>'}</tbody>
+        </table>
+        <div class="invtotal"><span>Total pay</span><span class="invnum">${money(total)}</span></div>
+      </div>
+    </div>`;
+  }
+
   // ================= INVOICE BUILDER =================
   let draftLines = [];   // { session, include, rate, description }
   let extras = [];       // { description, amount }
@@ -357,9 +421,40 @@
   ['iClient', 'iMonth'].forEach(id => $(id).addEventListener('change', loadBuilder));
   ['iIssued', 'iDue', 'iNotes'].forEach(id => $(id).addEventListener('input', renderPreview));
 
+  $('bulkLlc').checked = storage.get('pw.llc') === '1';
+  $('bulkLlc').addEventListener('change', () => storage.set('pw.llc', $('bulkLlc').checked ? '1' : '0'));
+  $('bulkInvoiceBtn').addEventListener('click', async () => {
+    $('bulkInvoiceBtn').disabled = true;
+    try {
+      const res = await api('admin/invoices/generate-all', { method: 'POST', body: {
+        period: $('iMonth').value, issued_date: $('iIssued').value, due_text: $('iDue').value, llc: $('bulkLlc').checked,
+      }});
+      renderBulkResult('bulkInvoiceResult', res, 'Client');
+      toast(`Created ${res.created.length} invoice${res.created.length === 1 ? '' : 's'}` + (res.skipped.length ? `, skipped ${res.skipped.length}` : ''));
+      await Promise.all([loadInvoices(), loadSessions()]);
+    } catch(err){ toast(err.message, true); }
+    finally { $('bulkInvoiceBtn').disabled = false; }
+  });
+
+  function renderBulkResult(elId, res, label){
+    const created = res.created.length
+      ? `<p class="small"><strong>${label}s invoiced:</strong> ${res.created.map(c => `${esc(c.name)} (${esc(c.number)}, ${money(c.total)})`).join(', ')}</p>` : '';
+    const skipped = res.skipped.length
+      ? `<p class="small error"><strong>Skipped:</strong> ${res.skipped.map(s => `${esc(s.name)} — ${esc(s.reason)}`).join('; ')}</p>` : '';
+    $(elId).innerHTML = created + skipped || '<p class="small muted">Nothing to generate — everything this month is already handled.</p>';
+  }
+
   async function loadBuilder(){
     const clientId = $('iClient').value, month = $('iMonth').value;
     draftLines = []; extras = [];
+    if(clientId === 'all'){
+      $('builder').hidden = true; $('builderEmpty').hidden = true;
+      $('bulkInvoice').hidden = false;
+      $('bulkInvMonth').textContent = month ? monthLabel(month) : 'this month';
+      $('bulkInvoiceResult').innerHTML = '';
+      return;
+    }
+    $('bulkInvoice').hidden = true;
     if(!clientId || !month){ $('builder').hidden = true; $('builderEmpty').hidden = false; return; }
     let sessions = [];
     try { sessions = await api(`admin/sessions?month=${month}&client=${clientId}&status=uninvoiced`); }
@@ -618,7 +713,7 @@
         <div><label class="lbl" for="cName">Client / parent name</label><input type="text" id="cName" required value="${esc(c.name || '')}"></div>
         <div><label class="lbl" for="cStudent">Student</label><input type="text" id="cStudent" value="${esc(c.student || '')}"></div>
         <div><label class="lbl" for="cEmail">Billing email</label><input type="email" id="cEmail" value="${esc(c.billing_email || '')}"></div>
-        <div><label class="lbl" for="cRate">Default client rate <span class="hint">($/hr)</span></label><input type="number" id="cRate" min="0" step="5" value="${c.default_rate ?? ''}"></div>
+        <div><label class="lbl" for="cRate">Default client rate <span class="hint">($/hr)</span></label><input type="number" id="cRate" min="0" step="5" required value="${c.default_rate ?? ''}"></div>
         <div class="span2"><label class="lbl" for="cNotes">Internal notes</label><input type="text" id="cNotes" value="${esc(c.notes || '')}"></div>
         ${isNew ? '' : `<div><label class="lbl">&nbsp;</label><label class="row small"><input type="checkbox" id="cActive" ${c.active ? 'checked' : ''}> Active</label></div>`}
       </div>
@@ -633,12 +728,33 @@
           <td class="num"><input type="number" class="rate compact" data-a="client_rate" min="0" step="5" value="${l && l.client_rate !== null ? l.client_rate : ''}"></td>
         </tr>`; }).join('')}</tbody></table></div>`}
       <div class="row end" style="margin-top:12px;">
+        ${isNew ? '' : c.invoice_count
+          ? `<span class="small muted">Has invoices, so it can't be deleted — untick Active to hide it.</span>`
+          : `<button type="button" class="btn btn-danger" id="cDelete">Delete client</button>`}
+        <span class="spacer"></span>
         <button type="button" class="btn" id="cCancel">Cancel</button>
         <button class="btn btn-primary">${isNew ? 'Create client' : 'Save client'}</button>
       </div>
     </form>`;
     $('cCancel').addEventListener('click', () => { editingClient = null; renderClientEditor(); });
     $('clientForm').addEventListener('submit', saveClient);
+    $('cDelete')?.addEventListener('click', deleteClient);
+  }
+
+  async function deleteClient(){
+    const c = editingClient;
+    const n = c.session_count;
+    const msg = `Delete ${c.name}${c.student ? ' (' + c.student + ')' : ''}?` +
+      (n ? `\n\nThis also permanently deletes their ${n} logged session${n === 1 ? '' : 's'}, which will drop out of tutor pay.` : '') +
+      `\n\nThis can't be undone.`;
+    if(!confirm(msg)) return;
+    try {
+      await api('admin/clients/' + c.id, { method: 'DELETE' });
+      editingClient = null;
+      toast('Client deleted');
+      await loadPeople();
+      loadSessions();
+    } catch(err){ toast(err.message, true); }
   }
 
   async function saveClient(e){

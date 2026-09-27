@@ -20,7 +20,73 @@ export default {
       return json({ error: 'Something went wrong on the server.' }, 500);
     }
   },
+
+  // Cron trigger (wrangler.jsonc) fires on the 1st of each month: generates
+  // invoices and pay stubs for the month that just ended, and emails a summary.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runMonthlyBilling(env));
+  },
 };
+
+async function runMonthlyBilling(env) {
+  const founders = (env.FOUNDER_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (!founders.length) { console.error('No FOUNDER_EMAILS configured; skipping monthly billing run.'); return; }
+  const systemUser = { email: founders[0] };
+  const period = previousMonth(new Date());
+  const issued_date = new Date().toISOString().slice(0, 10);
+
+  const invoices = await generateAllInvoices(env, systemUser, period, { issued_date, due_text: 'Within 7 days of this invoice', llc: false });
+  const payroll = await computeMonthlyPayroll(env, period);
+
+  if (!env.RESEND_API_KEY) { console.error('No RESEND_API_KEY configured; skipping monthly billing email.'); return; }
+  await sendMonthlyEmail(env, founders, period, invoices, payroll);
+}
+
+function previousMonth(d) {
+  const prev = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
+  return prev.toISOString().slice(0, 7);
+}
+
+async function sendMonthlyEmail(env, founders, period, invoices, payroll) {
+  const table = (items, label) => items.length
+    ? `<table cellpadding="4" cellspacing="0"><tr><th align="left">${label}</th><th align="right">Total</th></tr>${
+        items.map(i => `<tr><td>${esc(i.name)} (${esc(i.number)})</td><td align="right">$${i.total.toFixed(2)}</td></tr>`).join('')
+      }</table>` : '<p>None.</p>';
+  const skippedList = items => items.length
+    ? `<p><strong>Skipped — needs a rate:</strong></p><ul>${items.map(i => `<li>${esc(i.name)} — ${esc(i.reason)}</li>`).join('')}</ul>` : '';
+  const payrollTable = payroll.length
+    ? `<table cellpadding="4" cellspacing="0"><tr><th align="left">Tutor</th><th align="right">Pay owed</th></tr>${
+        payroll.map(t => `<tr><td>${esc(t.name)}${t.missing ? ' (' + t.missing + ' session(s) missing a pay rate)' : ''}</td><td align="right">$${t.pay.toFixed(2)}</td></tr>`).join('')
+      }</table>` : '<p>None.</p>';
+
+  const html = `
+    <h2>Palisade Writers — ${esc(period)} billing</h2>
+    <p>Generated automatically on the 1st. Sign in at
+      <a href="https://palisadewriters.com/invoice">palisadewriters.com/invoice</a> to review, print, and send invoices,
+      and to generate pay stubs from the Payroll tab.</p>
+    <h3>Invoices to send (${invoices.created.length})</h3>
+    ${table(invoices.created, 'Client')}
+    ${skippedList(invoices.skipped)}
+    <h3>Payroll owed</h3>
+    ${payrollTable}
+  `;
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.RESEND_API_KEY}` },
+    body: JSON.stringify({
+      from: env.EMAIL_FROM || 'Palisade Writers <billing@palisadewriters.com>',
+      to: founders,
+      subject: `Palisade Writers — ${period} invoices & payroll summary`,
+      html,
+    }),
+  });
+  if (!res.ok) console.error('Resend email failed:', res.status, await res.text());
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -216,6 +282,7 @@ async function myRoutes(request, env, user, seg, url) {
     const existing = await env.DB.prepare('SELECT * FROM sessions WHERE id = ? AND tutor_email = ?').bind(id, user.email).first();
     if (!existing) throw new HttpError(404, 'Session not found.');
     if (existing.invoice_id) throw new HttpError(409, 'This session has already been invoiced. Ask a founder to change it.');
+    if (daysAgo(existing.date) > 31) throw new HttpError(409, "Sessions more than 31 days old can't be changed. Ask a founder to fix it.");
 
     if (method === 'DELETE') {
       await env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(id).run();
@@ -303,7 +370,10 @@ async function adminRoutes(request, env, user, seg, url) {
   if (resource === 'clients') {
     if (!id && method === 'GET') {
       const [{ results: clients }, { results: links }] = await env.DB.batch([
-        env.DB.prepare('SELECT * FROM clients ORDER BY active DESC, name'),
+        env.DB.prepare(`SELECT c.*,
+            (SELECT COUNT(*) FROM sessions s WHERE s.client_id = c.id) AS session_count,
+            (SELECT COUNT(*) FROM invoices i WHERE i.client_id = c.id) AS invoice_count
+          FROM clients c ORDER BY c.active DESC, c.name`),
         env.DB.prepare('SELECT tutor_email, client_id, pay_rate, client_rate FROM tutor_clients'),
       ]);
       for (const c of clients) c.tutors = links.filter(l => l.client_id === c.id);
@@ -313,8 +383,10 @@ async function adminRoutes(request, env, user, seg, url) {
       const b = await body(request);
       const name = str(b.name, 120, 'Client name');
       if (!name) bad('Client name is required.');
+      const defaultRate = rateParam(b.default_rate);
+      if (defaultRate === null) bad('Set a default rate for this client.');
       const vals = [name, str(b.student, 120, 'Student'), str(b.billing_email, 200, 'Billing email'),
-        rateParam(b.default_rate), str(b.notes, 1000, 'Notes')];
+        defaultRate, str(b.notes, 1000, 'Notes')];
       if (method === 'POST' && !id) {
         const row = await env.DB.prepare(`INSERT INTO clients (name, student, billing_email, default_rate, notes)
             VALUES (?, ?, ?, ?, ?) RETURNING id`).bind(...vals).first();
@@ -326,6 +398,21 @@ async function adminRoutes(request, env, user, seg, url) {
         if (!r.meta.changes) throw new HttpError(404, 'Client not found.');
         return json({ ok: true });
       }
+    }
+    // Deleting a client also deletes their (necessarily uninvoiced) sessions and
+    // tutor assignments. Invoices are financial records, so a client with any
+    // invoice — even a void one — can only be marked inactive, never deleted.
+    if (id && method === 'DELETE') {
+      const clientId = intParam(id);
+      const inv = await env.DB.prepare('SELECT COUNT(*) AS n FROM invoices WHERE client_id = ?').bind(clientId).first();
+      if (inv.n) throw new HttpError(409, 'This client has invoices, so they can’t be deleted. Untick Active instead.');
+      const [sess, , del] = await env.DB.batch([
+        env.DB.prepare('DELETE FROM sessions WHERE client_id = ?').bind(clientId),
+        env.DB.prepare('DELETE FROM tutor_clients WHERE client_id = ?').bind(clientId),
+        env.DB.prepare('DELETE FROM clients WHERE id = ?').bind(clientId),
+      ]);
+      if (!del.meta.changes) throw new HttpError(404, 'Client not found.');
+      return json({ ok: true, sessions_deleted: sess.meta.changes });
     }
   }
 
@@ -404,6 +491,13 @@ async function adminRoutes(request, env, user, seg, url) {
       return json(inv);
     }
     if (!id && method === 'POST') return createInvoice(env, user, await body(request));
+    if (id === 'generate-all' && method === 'POST') {
+      const b = await body(request);
+      const result = await generateAllInvoices(env, user, monthParam(b.period), {
+        issued_date: dateParam(b.issued_date), due_text: str(b.due_text, 120, 'Payment due'), llc: !!b.llc,
+      });
+      return json(result, 201);
+    }
     if (id && method === 'PUT') {
       const b = await body(request);
       const inv = await env.DB.prepare('SELECT status FROM invoices WHERE id = ?').bind(id).first();
@@ -467,26 +561,76 @@ async function createInvoice(env, user, b) {
     if (!description || !Number.isFinite(amount) || Math.abs(amount) > 100000) bad('Each extra line needs a description and amount.');
     lines.push({ session_id: null, date: '', minutes: null, rate: null, description, amount: round2(amount) });
   }
+  const saved = await saveInvoice(env, user, client, period, issued, str(b.due_text, 120, 'Payment due'), !!b.llc, str(b.notes, 1000, 'Notes'), lines);
+  return json(saved, 201);
+}
+
+async function nextNumber(env, table, prefix) {
+  const { n } = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE number LIKE ?`).bind(prefix + '%').first();
+  return prefix + String(n + 1).padStart(2, '0');
+}
+
+// Shared by the manual builder and "Generate all invoices". One batch = one
+// transaction: the invoice, its lines and the session links land together or not at all.
+async function saveInvoice(env, user, client, period, issued, dueText, llc, notes, lines) {
   const total = round2(lines.reduce((sum, l) => sum + l.amount, 0));
-
-  const prefix = 'PW-' + period.replace('-', '') + '-';
-  const { n } = await env.DB.prepare('SELECT COUNT(*) AS n FROM invoices WHERE number LIKE ?').bind(prefix + '%').first();
-  const number = prefix + String(n + 1).padStart(2, '0');
+  const number = await nextNumber(env, 'invoices', 'PW-' + period.replace('-', '') + '-');
   const invoiceId = crypto.randomUUID();
-
-  // One batch = one transaction: the invoice, its lines and the session links land together or not at all.
   const stmts = [
     env.DB.prepare(`INSERT INTO invoices (id, number, client_id, period, issued_date, due_text, bill_to, student, from_line, notes, total, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(invoiceId, number, clientId, period, issued, str(b.due_text, 120, 'Payment due'), client.name, client.student,
-        b.llc ? 'Palisade Writers LLC' : 'Palisade Writers', str(b.notes, 1000, 'Notes'), total, user.email),
+      .bind(invoiceId, number, client.id, period, issued, dueText, client.name, client.student,
+        llc ? 'Palisade Writers LLC' : 'Palisade Writers', notes, total, user.email),
     ...lines.map((l, i) => env.DB.prepare(`INSERT INTO invoice_lines (invoice_id, session_id, date, description, minutes, rate, amount, sort)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(invoiceId, l.session_id, l.date, l.description, l.minutes, l.rate, l.amount, i)),
     ...lines.filter(l => l.session_id).map(l => env.DB.prepare(
       'UPDATE sessions SET invoice_id = ?, client_rate = ? WHERE id = ? AND invoice_id IS NULL').bind(invoiceId, l.rate, l.session_id)),
   ];
   await env.DB.batch(stmts);
-  return json({ id: invoiceId, number }, 201);
+  return { id: invoiceId, number, total };
+}
+
+const firstName = s => (s || '').split(/\s+/)[0];
+
+// One invoice per active client with uninvoiced sessions in `period`. A client whose
+// sessions are missing a bill rate is skipped and reported, rather than guessing a number.
+async function generateAllInvoices(env, user, period, { issued_date, due_text, llc }) {
+  const { results: clients } = await env.DB.prepare('SELECT * FROM clients WHERE active = 1 ORDER BY name').all();
+  const created = [], skipped = [];
+  for (const client of clients) {
+    const { results: sessions } = await env.DB.prepare(`SELECT s.*, u.name AS tutor_name,
+        COALESCE(s.client_rate, tc.client_rate, c.default_rate) AS bill_rate
+        FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
+        LEFT JOIN tutor_clients tc ON tc.tutor_email = s.tutor_email AND tc.client_id = s.client_id
+        WHERE s.client_id = ? AND substr(s.date, 1, 7) = ? AND s.invoice_id IS NULL
+        ORDER BY s.date`).bind(client.id, period).all();
+    if (!sessions.length) continue;
+    const missing = sessions.find(s => s.bill_rate === null);
+    if (missing) { skipped.push({ name: client.name, reason: 'No rate configured for one or more sessions.' }); continue; }
+    const lines = sessions.map(s => ({
+      session_id: s.id, date: s.date, minutes: s.minutes, rate: s.bill_rate,
+      description: (s.service || 'Tutoring session') + ' with ' + firstName(s.tutor_name || s.tutor_email),
+      amount: round2(s.bill_rate * s.minutes / 60),
+    }));
+    const saved = await saveInvoice(env, user, client, period, issued_date, due_text, llc, '', lines);
+    created.push({ client_id: client.id, name: client.name, number: saved.number, total: saved.total });
+  }
+  return { created, skipped };
+}
+
+// Read-only, unlocked snapshot of pay owed per tutor for `period` — for the monthly
+// email only. Pay stubs themselves are generated on demand from live data (see
+// invoice.html), never persisted, so there's nothing to "generate" here to save.
+async function computeMonthlyPayroll(env, period) {
+  const { results: sessions } = await env.DB.prepare(`SELECT s.tutor_email, s.pay_rate, s.minutes, u.name AS tutor_name
+      FROM sessions s JOIN users u ON u.email = s.tutor_email WHERE substr(s.date, 1, 7) = ?`).bind(period).all();
+  const byTutor = new Map();
+  for (const s of sessions) {
+    const t = byTutor.get(s.tutor_email) || { name: s.tutor_name || s.tutor_email, pay: 0, missing: 0 };
+    if (s.pay_rate === null) t.missing++; else t.pay += round2(s.pay_rate * s.minutes / 60);
+    byTutor.set(s.tutor_email, t);
+  }
+  return [...byTutor.values()];
 }
 
 // ---------- validation helpers ----------
@@ -516,6 +660,9 @@ function rateParam(v) {
 function dateParam(v) {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v + 'T00:00:00Z'))) bad('Enter a valid date.');
   return v;
+}
+function daysAgo(dateStr) {
+  return (Date.now() - Date.parse(dateStr + 'T00:00:00Z')) / 86400000;
 }
 function monthParam(v) {
   if (typeof v !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) bad('Enter a valid month.');

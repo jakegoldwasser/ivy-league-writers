@@ -15,7 +15,10 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
   shared `public/portal.js` + `public/portal.css`.
 - `src/worker.js` handles `/api/*` only; everything else falls through to Assets.
   All permission checks live there: tutors see only their own sessions and never
-  client rates; `/api/admin/*` is founders only; invoiced sessions are locked.
+  client rates; `/api/admin/*` is founders only; invoiced sessions are billing-locked
+  (pay stays editable); a tutor (not a founder) can't edit/delete a session more than
+  31 days old (`daysAgo()` in `src/worker.js`) — that's the only pay data-integrity
+  control, see Pay stubs below.
 - Auth: Google Identity Services ID token → verified in the Worker → HMAC-signed
   `pw_session` cookie (secret auto-generated in the D1 `config` table).
   `GOOGLE_CLIENT_ID` and `FOUNDER_EMAILS` are plain vars in `wrangler.jsonc`.
@@ -24,6 +27,33 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
   apply with `npm run db:migrate`. Local test DB: `wrangler d1 migrations apply palisade-portal --local`.
 - Local testing: `npm run dev`. `.dev.vars` (gitignored) with `DEV_MODE="1"` enables
   an email-only test login at `/api/dev-login`; it is never on in production.
+- Every client must have a `default_rate` (enforced server-side and via `required`
+  on the form) — there is no such thing as a client without a billing rate.
+
+### Pay stubs & bulk generation
+
+- Pay stubs are **stateless** — there is no `paystubs` table (migration
+  `0002_paystubs.sql` added one; `0003_drop_paystubs.sql` removed it — locking pay
+  to a saved record was tried and explicitly rejected). "Generate Paystubs" on
+  `/invoice` (Sessions & payroll tab) just reads the currently-filtered `rows` in
+  the browser and prints one doc per tutor (`paystubDoc()` in `invoice.html`) from
+  whatever's logged right now — nothing is saved, nothing is locked. Re-running it
+  later can show different numbers if sessions changed since; that's intentional.
+- "Generate All Invoices" (Invoices tab, pick "All clients" in the Client dropdown)
+  is unrelated and still persists: one invoice per active client with uninvoiced
+  sessions that month, using each client's configured rate, skipping (with a
+  reported reason) any client missing one — `generateAllInvoices` in `src/worker.js`.
+  Invoicing still locks billing on the sessions it covers (`sessions.invoice_id`).
+- A Cloudflare Cron Trigger (`triggers.crons` in `wrangler.jsonc`, 13:00 UTC on the
+  1st) runs `scheduled()` in `src/worker.js`: generates last month's invoices the
+  same way, computes a read-only payroll-by-tutor summary (`computeMonthlyPayroll`,
+  no locking), and emails both to `FOUNDER_EMAILS` via Resend (`RESEND_API_KEY` —
+  a secret, set with `npx wrangler secret put RESEND_API_KEY`; `EMAIL_FROM` is a
+  plain var and must be on a domain verified in Resend). The email doesn't attach
+  pay stub PDFs — those are only ever generated on demand from live data in the UI.
+- Cron triggers need a `workers.dev` subdomain on the account (one-time: open the
+  Workers & Pages dashboard once) — `npm run deploy` otherwise deploys the Worker
+  fine but errors on the trigger step.
 
 Legacy: this repo's `main` branch also still deploys to **ivyleaguewriters.com**
 via GitHub Pages (the root `CNAME` file), which is a separate, older site under

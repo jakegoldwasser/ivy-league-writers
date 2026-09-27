@@ -455,7 +455,7 @@
       const total = (rate && sessions) ? (Number(rate) * Number(sessions)) : null;
       lineLabel = (sessions ? esc(sessions) + ' session' + (Number(sessions) === 1 ? '' : 's') : '[# of sessions]') + ' at ' + (rate ? money(rate) : '[rate]') + '/hr';
       amount = total !== null ? money(total) : '[total price]';
-      dueText = 'Within 48 hours of this invoice';
+      dueText = 'Within 7 days of this invoice';
     }
     return `
       <div class="invoice">

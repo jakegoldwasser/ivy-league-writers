@@ -16,10 +16,20 @@
   ],
   "vars": {
     // OAuth Web client ID from Google Cloud Console (public, not a secret).
-    "GOOGLE_CLIENT_ID": "",
+    "GOOGLE_CLIENT_ID": "54717203390-tt7j8fvquutvv66uond30392tpuhhh9t.apps.googleusercontent.com",
     // Comma-separated. These people get founder access on first sign-in;
-    // everyone else must be added from /invoice → People.
-    "FOUNDER_EMAILS": "jake.goldwasser@gmail.com"
+    // everyone else must be added from /invoice → People. Also who the
+    // monthly billing email (see the "crons" trigger below) goes to.
+    "FOUNDER_EMAILS": "jake.goldwasser@gmail.com",
+    // Sender for the monthly billing email. Must be on a domain verified in Resend.
+    "EMAIL_FROM": "Palisade Writers <billing@palisadewriters.com>"
+  },
+  // RESEND_API_KEY is a secret, not a var — set it with:
+  //   npx wrangler secret put RESEND_API_KEY
+  "triggers": {
+    // 13:00 UTC on the 1st of each month (~8-9am US Eastern). Generates last
+    // month's invoices/pay stubs and emails FOUNDER_EMAILS a summary.
+    "crons": ["0 13 1 * *"]
   },
   "routes": [
     { "pattern": "palisadewriters.com", "custom_domain": true },
