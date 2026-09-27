@@ -15,7 +15,16 @@
   .monthpick{ display:flex; gap:6px; align-items:center; }
   .monthpick input{ width:170px; }
   td input.rate{ width:86px; text-align:right; }
-  td input.desc{ min-width:200px; }
+  /* The line table sits in the narrower half of the builder; tighter cells keep Amount visible without scrolling. */
+  #iLines th, #iLines td{ padding-left:4px; padding-right:4px; }
+  #iLines input.rate{ width:76px; }
+  td input.hrs{ width:62px; text-align:right; font-family:'IBM Plex Mono', monospace; }
+  td input.amt{ width:92px; text-align:right; }
+  td input.amt:read-only{ background:transparent; border-color:transparent; }
+  td input[type=date].compact{ width:128px; }
+  td .logged{ white-space:nowrap; margin-top:2px; }
+  input[aria-invalid="true"]{ border-color:var(--rust); }
+  td input.desc{ min-width:130px; }
   .builder{ display:grid; grid-template-columns:minmax(0, 1.1fr) minmax(320px, .9fr); gap:20px; align-items:start; }
   @media (max-width:1000px){ .builder{ grid-template-columns:1fr; } }
   .clientEdit{ background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:12px; }
@@ -150,9 +159,10 @@
           <label class="row small"><input type="checkbox" id="iLlc"> LLC approved</label>
         </div>
         <div class="tablewrap"><table id="iLines"></table></div>
-        <h3>Other line items</h3>
-        <div id="iExtras"></div>
-        <button class="btn btn-sm" id="iAddExtra">+ Add line (e.g. materials, discount as a negative number)</button>
+        <div class="row" style="margin-top:10px;">
+          <button class="btn btn-sm" id="iAddExtra">+ Add line</button>
+          <span class="small muted">Bill by the hour with hours and a rate, or leave hours blank for a flat amount (fees, packages, a discount as a negative). Hours can be 1.5, 1:30 or 90m.</span>
+        </div>
         <h3>Note on invoice <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400;">(optional)</span></h3>
         <textarea id="iNotes" maxlength="1000" placeholder="e.g. Thank you! Venmo @palisadewriters"></textarea>
         <div class="row end" style="margin-top:14px;">
@@ -412,8 +422,9 @@
   }
 
   // ================= INVOICE BUILDER =================
-  let draftLines = [];   // { session, include, rate, description }
-  let extras = [];       // { description, amount }
+  // Every line: { session?, include, date, description, hrs, rate, amount }. hrs/rate/amount
+  // hold the raw text typed, so half-typed values like "1." survive re-renders.
+  let draft = [];
   $('iMonth').value = shiftMonth(thisMonth(), 0);
   $('iIssued').value = localISO();
   $('iLlc').checked = storage.get('pw.llc') === '1';
@@ -446,7 +457,7 @@
 
   async function loadBuilder(){
     const clientId = $('iClient').value, month = $('iMonth').value;
-    draftLines = []; extras = [];
+    draft = [];
     if(clientId === 'all'){
       $('builder').hidden = true; $('builderEmpty').hidden = true;
       $('bulkInvoice').hidden = false;
@@ -459,8 +470,8 @@
     let sessions = [];
     try { sessions = await api(`admin/sessions?month=${month}&client=${clientId}&status=uninvoiced`); }
     catch(err){ toast(err.message, true); }
-    draftLines = sessions.map(s => ({
-      session: s, include: true, rate: s.bill_rate,
+    draft = sessions.map(s => ({
+      session: s, include: true, date: s.date, hrs: hrsText(s.minutes), rate: s.bill_rate ?? '', amount: '',
       description: (s.service || 'Tutoring session') + ' with ' + firstName(s.tutor_name || s.tutor_email),
     }));
     $('builder').hidden = false;
@@ -468,62 +479,101 @@
     renderBuilder();
   }
 
-  const lineAmount = l => (l.rate === null || l.rate === '' || isNaN(l.rate)) ? null : round2(Number(l.rate) * l.session.minutes / 60);
+  const hrsText = m => String(round2(m / 60));
+  // Accepts "1.5", "1:30", "90m", "1h 30m", "1.5 hrs". Returns minutes, null if blank, NaN if unreadable.
+  function parseHours(t){
+    t = String(t ?? '').trim().toLowerCase();
+    if(!t) return null;
+    let m;
+    if((m = t.match(/^(\d*\.?\d+)\s*(h|hr|hrs|hour|hours)?$/))) return Math.round(Number(m[1]) * 60);
+    if((m = t.match(/^(\d+):([0-5]?\d)$/))) return Number(m[1]) * 60 + Number(m[2]);
+    if((m = t.match(/^(?:(\d*\.?\d+)\s*h\w*)?\s*(?:(\d+)\s*m\w*)?$/)) && (m[1] || m[2]))
+      return Math.round(Number(m[1] || 0) * 60 + Number(m[2] || 0));
+    return NaN;
+  }
+  const numOrNull = v => v === '' || v === null || v === undefined || isNaN(Number(v)) ? null : Number(v);
+  const lineMinutes = l => parseHours(l.hrs);
+  // Hourly when it has hours and a rate; otherwise a manual line falls back to its flat amount.
+  const isHourly = l => { const m = lineMinutes(l); return m > 0 && numOrNull(l.rate) !== null; };
+  const lineAmount = l => isHourly(l) ? round2(Number(l.rate) * lineMinutes(l) / 60)
+    : (!l.session && numOrNull(l.amount) !== null ? round2(Number(l.amount)) : null);
+  const blankLine = l => !l.session && !l.description.trim() && !String(l.hrs).trim() && String(l.amount).trim() === '';
 
   function renderBuilder(){
-    $('iLines').innerHTML = draftLines.length ? `
-      <thead><tr><th></th><th>Date</th><th>Description</th><th class="num">Length</th><th class="num">$/hr</th><th class="num">Amount</th></tr></thead>
-      <tbody>${draftLines.map((l, i) => `<tr>
-        <td><input type="checkbox" data-inc="${i}" ${l.include ? 'checked' : ''} aria-label="Include"></td>
-        <td style="white-space:nowrap">${esc(fmtDate(l.session.date))}</td>
-        <td><input type="text" class="desc compact" data-desc="${i}" value="${esc(l.description)}" maxlength="200"></td>
-        <td class="num">${esc(duration(l.session.minutes))}</td>
-        <td class="num"><input type="number" class="rate compact" min="0" step="5" data-rate="${i}" value="${l.rate ?? ''}" aria-label="Rate"></td>
-        <td class="num" data-amt="${i}">${money(lineAmount(l))}</td>
-      </tr>`).join('')}</tbody>`
-      : `<tbody><tr><td class="empty">No uninvoiced sessions for this client in ${esc(monthLabel($('iMonth').value))}. You can still add line items below.</td></tr></tbody>`;
-    renderExtras();
+    const rows = draft.map((l, i) => l.session ? `<tr data-i="${i}">
+        <td><input type="checkbox" data-f="include" ${l.include ? 'checked' : ''} aria-label="Include"></td>
+        <td style="white-space:nowrap">${esc(fmtDate(l.date))}</td>
+        <td><input type="text" class="desc compact" data-f="description" value="${esc(l.description)}" maxlength="200"></td>
+        <td class="num"><input type="text" inputmode="decimal" class="hrs compact" data-f="hrs" value="${esc(l.hrs)}" aria-label="Hours"><div class="small muted logged" data-logged></div></td>
+        <td class="num"><input type="number" class="rate compact" min="0" step="5" data-f="rate" value="${esc(l.rate)}" aria-label="Rate"></td>
+        <td class="num" data-amt></td>
+      </tr>` : `<tr data-i="${i}">
+        <td><button class="btn btn-sm btn-danger" data-del aria-label="Remove line">✕</button></td>
+        <td><input type="date" class="compact" data-f="date" value="${esc(l.date)}" aria-label="Date (optional)"></td>
+        <td><input type="text" class="desc compact" data-f="description" value="${esc(l.description)}" maxlength="200" placeholder="Description"></td>
+        <td class="num"><input type="text" inputmode="decimal" class="hrs compact" data-f="hrs" value="${esc(l.hrs)}" placeholder="—" aria-label="Hours"></td>
+        <td class="num"><input type="number" class="rate compact" min="0" step="5" data-f="rate" value="${esc(l.rate)}" placeholder="—" aria-label="Rate"></td>
+        <td class="num"><input type="number" class="amt compact" step="0.01" data-f="amount" placeholder="Amount" aria-label="Amount"></td>
+      </tr>`).join('');
+    $('iLines').innerHTML = `
+      <thead><tr><th></th><th>Date</th><th>Description</th><th class="num">Hours</th><th class="num">$/hr</th><th class="num">Amount</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="6" class="empty">No uninvoiced sessions for this client in ${esc(monthLabel($('iMonth').value))}. Add lines below.</td></tr>`}</tbody>`;
+    draft.forEach((_, i) => refreshRow(i));
     renderPreview();
   }
 
-  function renderExtras(){
-    $('iExtras').innerHTML = extras.map((x, i) => `
-      <div class="row" style="margin-bottom:8px;">
-        <input type="text" class="compact" style="flex:1;min-width:180px;" data-xdesc="${i}" value="${esc(x.description)}" placeholder="Description" maxlength="200">
-        <input type="number" class="compact" style="width:120px;" data-xamt="${i}" value="${x.amount}" step="0.01" placeholder="Amount">
-        <button class="btn btn-sm btn-danger" data-xdel="${i}" aria-label="Remove line">✕</button>
-      </div>`).join('');
+  // Updates one row's derived bits in place, so typing never loses focus.
+  function refreshRow(i){
+    const l = draft[i], tr = $('iLines').querySelector(`tr[data-i="${i}"]`);
+    if(!tr) return;
+    const m = lineMinutes(l);
+    tr.querySelector('[data-f="hrs"]').setAttribute('aria-invalid', Number.isNaN(m) || m === 0 ? 'true' : 'false');
+    if(l.session){
+      tr.querySelector('[data-amt]').textContent = money(lineAmount(l));
+      tr.querySelector('[data-logged]').textContent = m > 0 && m !== l.session.minutes ? 'logged ' + duration(l.session.minutes) : '';
+    } else {
+      // An hourly manual line computes its amount; a flat one takes whatever's typed.
+      const amt = tr.querySelector('[data-f="amount"]');
+      const hourly = isHourly(l);
+      amt.readOnly = hourly;
+      if(hourly) amt.value = lineAmount(l).toFixed(2);
+      else if(document.activeElement !== amt) amt.value = l.amount;
+    }
   }
 
   $('iLines').addEventListener('wheel', e => { if(e.target.matches('input[type=number]')) e.target.blur(); }, { passive: true });
   $('iLines').addEventListener('input', e => {
-    const d = e.target.dataset;
-    if(d.inc !== undefined) draftLines[d.inc].include = e.target.checked;
-    if(d.desc !== undefined) draftLines[d.desc].description = e.target.value;
-    if(d.rate !== undefined){
-      draftLines[d.rate].rate = e.target.value === '' ? null : Number(e.target.value);
-      document.querySelector(`[data-amt="${d.rate}"]`).textContent = money(lineAmount(draftLines[d.rate]));
+    const tr = e.target.closest('tr[data-i]'), f = e.target.dataset.f;
+    if(!tr || !f) return;
+    const i = Number(tr.dataset.i);
+    if(f === 'amount' && e.target.readOnly) return;
+    const l = draft[i];
+    l[f] = f === 'include' ? e.target.checked : e.target.value;
+    // Typing hours on an added line makes it hourly, so start it at the client's rate.
+    if(f === 'hrs' && !l.session && l.rate === '' && lineMinutes(l) > 0){
+      const c = clients.find(x => String(x.id) === $('iClient').value);
+      if(c && c.default_rate !== null){ l.rate = String(c.default_rate); tr.querySelector('[data-f="rate"]').value = l.rate; }
     }
+    refreshRow(i);
     renderPreview();
+  });
+  $('iLines').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-i]');
+    if(!tr || !e.target.closest('[data-del]')) return;
+    draft.splice(Number(tr.dataset.i), 1);
+    renderBuilder();
   });
   $('iApplyRate').addEventListener('click', () => {
     const v = $('iAllRate').value;
     if(v === '') return;
-    draftLines.forEach(l => l.rate = Number(v));
+    // Only lines billed by the hour; flat lines keep their amount.
+    draft.forEach(l => { if(l.session || lineMinutes(l) > 0) l.rate = v; });
     renderBuilder();
   });
-  $('iAddExtra').addEventListener('click', () => { extras.push({ description: '', amount: '' }); renderExtras(); });
-  $('iExtras').addEventListener('input', e => {
-    const d = e.target.dataset;
-    if(d.xdesc !== undefined) extras[d.xdesc].description = e.target.value;
-    if(d.xamt !== undefined) extras[d.xamt].amount = e.target.value;
-    renderPreview();
-  });
-  $('iExtras').addEventListener('click', e => {
-    const i = e.target.dataset.xdel;
-    if(i === undefined) return;
-    extras.splice(Number(i), 1);
-    renderExtras(); renderPreview();
+  $('iAddExtra').addEventListener('click', () => {
+    draft.push({ include: true, date: '', description: '', hrs: '', rate: '', amount: '' });
+    renderBuilder();
+    $('iLines').querySelector(`tr[data-i="${draft.length - 1}"] [data-f="description"]`)?.focus();
   });
 
   // Builds the invoice document, shared by the live preview and saved invoices.
@@ -559,13 +609,18 @@
     </div>`;
   }
 
+  // Lines as they'll be printed: dated ones in date order, undated (fees, discounts) after.
+  function draftLinesOut(){
+    return draft.filter(l => l.session ? l.include : !blankLine(l)).map(l => {
+      const hourly = isHourly(l), m = lineMinutes(l);
+      return { date: l.date, description: l.description, minutes: m > 0 ? m : null,
+        rate: hourly ? Number(l.rate) : null, amount: lineAmount(l) || 0 };
+    }).sort((a, b) => (!a.date) - (!b.date) || a.date.localeCompare(b.date));
+  }
+
   function draftInvoice(){
     const c = clients.find(x => String(x.id) === $('iClient').value) || {};
-    const lines = [
-      ...draftLines.filter(l => l.include).map(l => ({ date: l.session.date, description: l.description, minutes: l.session.minutes, rate: l.rate, amount: lineAmount(l) || 0 }))
-        .sort((a, b) => a.date.localeCompare(b.date)),
-      ...extras.filter(x => x.description || x.amount !== '').map(x => ({ date: '', description: x.description, minutes: null, rate: null, amount: round2(Number(x.amount) || 0) })),
-    ];
+    const lines = draftLinesOut();
     return {
       number: 'PW-' + ($('iMonth').value || '').replace('-', '') + '-##',
       from_line: $('iLlc').checked ? 'Palisade Writers LLC' : 'Palisade Writers',
@@ -576,17 +631,38 @@
   }
   function renderPreview(){ if(!$('builder').hidden) $('iPreview').innerHTML = invoiceDoc(draftInvoice()); }
 
+  // First problem with a line, in words, or '' if it's ready to save.
+  function lineProblem(l){
+    const what = l.session ? `the ${fmtDate(l.date)} session` : `"${l.description.trim() || 'untitled line'}"`;
+    const m = lineMinutes(l);
+    if(Number.isNaN(m) || m === 0) return `Hours for ${what} should look like 1.5, 1:30 or 90m.`;
+    if(l.session){
+      if(!(m > 0)) return `Enter hours for ${what}.`;
+      if(numOrNull(l.rate) === null) return `Set a rate for ${what}.`;
+      return '';
+    }
+    if(!l.description.trim()) return 'Give every added line a description.';
+    if(m > 0 && numOrNull(l.rate) === null) return `Set a rate for ${what}, or clear its hours and enter an amount.`;
+    if(lineAmount(l) === null) return `Give ${what} an amount, or hours and a rate.`;
+    return '';
+  }
+
   $('iSave').addEventListener('click', async () => {
-    const included = draftLines.filter(l => l.include);
-    const missing = included.find(l => l.rate === null || l.rate === '' || isNaN(l.rate));
-    if(missing){ toast(`Set a rate for the ${fmtDate(missing.session.date)} session.`, true); return; }
+    const sessionsIn = draft.filter(l => l.session && l.include);
+    const manual = draft.filter(l => !l.session && !blankLine(l));
+    const problem = [...sessionsIn, ...manual].map(lineProblem).find(Boolean);
+    if(problem){ toast(problem, true); return; }
     $('iSave').disabled = true;
     try {
       const res = await api('admin/invoices', { method: 'POST', body: {
         client_id: Number($('iClient').value), period: $('iMonth').value, issued_date: $('iIssued').value,
         due_text: $('iDue').value, notes: $('iNotes').value, llc: $('iLlc').checked,
-        lines: included.map(l => ({ session_id: l.session.id, rate: Number(l.rate), description: l.description })),
-        extras: extras.filter(x => x.description || x.amount !== '').map(x => ({ description: x.description, amount: Number(x.amount) })),
+        lines: sessionsIn.map(l => ({ session_id: l.session.id, rate: Number(l.rate), description: l.description, minutes: lineMinutes(l) })),
+        extras: manual.map(l => {
+          const hourly = isHourly(l);
+          return { date: l.date, description: l.description.trim(), minutes: hourly ? lineMinutes(l) : null,
+            rate: hourly ? Number(l.rate) : null, amount: hourly ? null : Number(l.amount) };
+        }),
       }});
       toast('Saved invoice ' + res.number);
       $('iNotes').value = '';

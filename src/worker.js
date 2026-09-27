@@ -530,7 +530,7 @@ async function createInvoice(env, user, b) {
   const reqLines = Array.isArray(b.lines) ? b.lines : [];
   const extras = Array.isArray(b.extras) ? b.extras : [];
   if (!reqLines.length && !extras.length) bad('Add at least one session or line item.');
-  if (reqLines.length > 200 || extras.length > 20) bad('Too many lines.');
+  if (reqLines.length > 200 || extras.length > 100) bad('Too many lines.');
 
   const ids = reqLines.map(l => intParam(l.session_id));
   if (new Set(ids).size !== ids.length) bad('A session is listed twice.');
@@ -548,19 +548,35 @@ async function createInvoice(env, user, b) {
     if (s.invoice_id) bad(`The ${s.date} session is already on another invoice.`);
     const rate = rateParam(l.rate);
     if (rate === null) bad(`Set a rate for the ${s.date} session.`);
+    // Billed length can differ from the logged length (e.g. rounding up); the
+    // session's own minutes, which drive tutor pay, are left untouched.
+    const minutes = l.minutes === undefined || l.minutes === null ? s.minutes : billedMinutes(l.minutes, `the ${s.date} session`);
     lines.push({
-      session_id: s.id, date: s.date, minutes: s.minutes, rate,
+      session_id: s.id, date: s.date, minutes, rate,
       description: str(l.description, 200, 'Description') || s.service || 'Tutoring session',
-      amount: round2(rate * s.minutes / 60),
+      amount: round2(rate * minutes / 60),
     });
   }
-  lines.sort((a, b2) => a.date.localeCompare(b2.date));
+  // Manual lines are either hourly (hours × rate) or a flat amount (fees, packages,
+  // discounts as negatives). The date is optional.
   for (const e of extras) {
     const description = str(e.description, 200, 'Line item');
-    const amount = Number(e.amount);
-    if (!description || !Number.isFinite(amount) || Math.abs(amount) > 100000) bad('Each extra line needs a description and amount.');
-    lines.push({ session_id: null, date: '', minutes: null, rate: null, description, amount: round2(amount) });
+    if (!description) bad('Each extra line needs a description.');
+    const date = e.date ? dateParam(e.date) : '';
+    const minutes = e.minutes === undefined || e.minutes === null || e.minutes === '' ? null : billedMinutes(e.minutes, `"${description}"`);
+    const rate = minutes ? rateParam(e.rate) : null;
+    let amount;
+    if (minutes && rate !== null) amount = round2(rate * minutes / 60);
+    else {
+      amount = Number(e.amount);
+      if (e.amount === '' || e.amount === null || !Number.isFinite(amount) || Math.abs(amount) > 100000)
+        bad(`Give "${description}" an amount, or hours and a rate.`);
+      amount = round2(amount);
+    }
+    lines.push({ session_id: null, date, minutes, rate, description, amount });
   }
+  // Dated lines in date order, undated ones (fees, discounts) after them.
+  lines.sort((a, b2) => (!a.date) - (!b2.date) || a.date.localeCompare(b2.date));
   const saved = await saveInvoice(env, user, client, period, issued, str(b.due_text, 120, 'Payment due'), !!b.llc, str(b.notes, 1000, 'Notes'), lines);
   return json(saved, 201);
 }
@@ -656,6 +672,11 @@ function rateParam(v) {
   const n = Number(v);
   if (!Number.isFinite(n) || n < 0 || n > 10000) bad('Rates must be between $0 and $10,000.');
   return round2(n);
+}
+function billedMinutes(v, what) {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n <= 0 || n > 100 * 60) bad(`Enter a valid length for ${what}.`);
+  return n;
 }
 function dateParam(v) {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v + 'T00:00:00Z'))) bad('Enter a valid date.');

@@ -87,7 +87,9 @@
   }
   function money(n){
     if(n === null || n === undefined || n === '' || isNaN(Number(n))) return '—';
-    return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const v = Number(n);
+    // Discounts read "−$25.00", not "$-25.00".
+    return (v < 0 ? '−$' : '$') + Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   const round2 = n => Math.round(n * 100) / 100;
   function hours(minutes){
