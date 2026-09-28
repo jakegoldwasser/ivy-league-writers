@@ -7,8 +7,9 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
 - Deploy command: `npm run deploy` (`wrangler deploy`; run `npm install` first)
 - Config: `wrangler.jsonc` (routes bind palisadewriters.com + www to this Worker)
 - Contact form posts to web3forms.com (access key hardcoded in `public/index.html`).
-- Landing copy must not promise or imply admissions (or publication) outcomes: no
-  "admitted to…" lists or "deliver results". The footer carries a no-guarantee disclaimer.
+- Landing copy must not promise admissions (or publication) outcomes — no "we get
+  students into…" or "deliver results". Past student admits ("Admitted to Penn ·
+  Columbia…" hero stat) are fine and wanted. The footer carries a no-guarantee disclaimer.
 
 ## Timesheet / invoice portal
 
