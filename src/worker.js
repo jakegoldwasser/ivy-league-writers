@@ -156,7 +156,8 @@ async function handleApi(request, env, url) {
   }
 
   if (path === '/api/config' && method === 'GET') {
-    return json({ googleClientId: env.GOOGLE_CLIENT_ID || '', services: SERVICES, devLogin: env.DEV_MODE === '1' });
+    return json({ googleClientId: env.GOOGLE_CLIENT_ID || '', services: SERVICES, devLogin: env.DEV_MODE === '1',
+      calendarOrganizer: env.CALENDAR_ORGANIZER || DEFAULT_ORGANIZER });
   }
   if (path === '/api/login' && method === 'POST') return login(request, env);
   if (path === '/api/logout' && method === 'POST') {

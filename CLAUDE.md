@@ -80,3 +80,23 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
 Legacy: this repo's `main` branch also still deploys to **ivyleaguewriters.com**
 via GitHub Pages (the root `CNAME` file), which is a separate, older site under
 the "Ivy League Writers" brand. Do not assume AWS is involved anywhere here.
+
+## Scheduling, PAID/BILLABLE, invites (migration 0006)
+
+- A session's `status` is `scheduled` (booked ahead by a founder in the Schedule
+  tab), `held` (it happened) or `cancelled`; its `billing` is `billable` (gets
+  invoiced) or `paid` (drawn from the client's prepaid `packages`). Only held
+  sessions count toward pay and 1099 totals; only held BILLABLE ones are invoiced.
+- Past scheduled sessions wait for the tutor to confirm them on /timesheet ("Did
+  these happen?"). Logging a session on a booked day confirms that booking.
+  Tutors can't move or delete a founder's booking.
+- Calendar invites are .ics emails sent through Resend from `CALENDAR_ORGANIZER`
+  (default jake@palisadewriters.com, which must be on the Resend-verified domain)
+  to the parent (billing email), the student (if `student_email` is set; missing
+  it never blocks booking) and the tutor. Moves re-send with a higher SEQUENCE;
+  cancellations send METHOD:CANCEL.
+- Billing email (invoice "Email to client", the monthly summary) goes to the
+  client and every active founder, never a tutor (`founderEmails`).
+- Students tab: a directory with each client's rundown (`clients.summary`),
+  student email, active flag and package balance.
+

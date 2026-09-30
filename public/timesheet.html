@@ -22,6 +22,15 @@
   .sess .meta{ font-size:12.5px; color:var(--ink-soft); }
   .sess .actions{ display:flex; gap:6px; }
   @media (max-width:520px){ .sess{ grid-template-columns:1fr auto; } .sess .d{ grid-column:1 / -1; } }
+  .sess.cancelled .c, .sess.cancelled .meta{ text-decoration:line-through; color:var(--ink-soft); }
+  .pill.sched{ background:#e8ecf6; border-color:#c3cde4; color:#34466e; }
+  .confirm-card{ border-color:#e6c4b2; background:var(--rust-wash); }
+  .confirm-row{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid #e6c4b2; }
+  .confirm-row:last-child{ border-bottom:none; }
+  .confirm-row .btns{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  .confirm-row input{ width:74px; min-height:30px; padding:4px 6px; }
+  .mail-row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 0; }
+  .mail-row input{ flex:1; min-width:180px; }
   .editing-banner{ background:var(--accent-wash); border:1px solid #bcd6d2; border-radius:8px; padding:8px 10px; font-size:12.5px; margin-bottom:12px; }
 </style>
 </head>
@@ -92,6 +101,16 @@
     </section>
 
     <section>
+      <div class="card confirm-card" id="confirmCard" hidden>
+        <h2 style="margin-top:0;">Did these happen?</h2>
+        <p class="small" style="margin-top:0;">Sessions a founder scheduled for you that are now past. Confirm each one (fix the length if it ran long or short) so it counts toward your pay.</p>
+        <div id="confirmList"></div>
+      </div>
+      <div class="card" id="mailCard" hidden>
+        <h2 style="margin-top:0;">Student emails</h2>
+        <p class="small muted" style="margin-top:0;">We send students calendar invites for their sessions. If you know one of these, add it.</p>
+        <div id="mailList"></div>
+      </div>
       <div class="card">
         <div class="row">
           <div class="monthnav">
@@ -134,7 +153,7 @@
 
   $('service').innerHTML = config.services.map(s => `<option>${esc(s)}</option>`).join('');
 
-  const clients = await api('my/clients');
+  let clients = await api('my/clients');
   $('client').innerHTML = '<option value="">Choose…</option>' +
     clients.map(c => `<option value="${c.id}">${esc(c.name)}${c.student ? ' — ' + esc(c.student) : ''}</option>`).join('');
   $('noClients').hidden = clients.length > 0;
@@ -176,9 +195,11 @@
     };
     $('saveBtn').disabled = true;
     try {
-      if(editingId) await api('my/sessions/' + editingId, { method: 'PUT', body: payload });
-      else await api('my/sessions', { method: 'POST', body: payload });
-      toast(editingId ? 'Session updated' : 'Session saved');
+      const res = editingId
+        ? await api('my/sessions/' + editingId, { method: 'PUT', body: payload })
+        : await api('my/sessions', { method: 'POST', body: payload });
+      // Logging a day that was already booked confirms the booking.
+      toast(editingId ? 'Session updated' : res.confirmed ? 'Saved — that confirms the session scheduled for that day' : 'Session saved');
       const savedMonth = payload.date.slice(0, 7);
       resetForm();
       if(savedMonth !== month){ month = savedMonth; }
@@ -196,13 +217,61 @@
     try { sessions = await api('my/sessions?month=' + month); }
     catch(err){ toast(err.message, true); sessions = []; }
     render();
+    loadConfirm();
+    renderMail();
   }
 
+  // ---- past bookings waiting for "yes, it happened" ----
+  let pending = [];
+  async function loadConfirm(){
+    try { pending = await api('my/sessions/unconfirmed'); } catch(err){ pending = []; }
+    $('confirmCard').hidden = !pending.length;
+    $('confirmList').innerHTML = pending.map(s => `<div class="confirm-row" data-id="${s.id}">
+      <div><strong>${esc(fmtDate(s.date))}</strong> ${esc(fmtTime(s.start_time))} · ${esc(s.student || s.client_name)}
+        <div class="small muted">${esc(s.service || 'Session')}, booked for ${esc(duration(s.minutes))}</div></div>
+      <div class="btns"><label class="small" style="display:flex;gap:4px;align-items:center;">Minutes <input type="number" min="1" max="720" value="${s.minutes}" data-confirm-min></label>
+        <button class="btn btn-sm btn-primary" data-yes>It happened</button>
+        <button class="btn btn-sm" data-no>It didn’t</button></div>
+    </div>`).join('');
+  }
+  $('confirmList').addEventListener('click', async e => {
+    const row = e.target.closest('[data-id]');
+    if(!row || !(('yes' in e.target.dataset) || ('no' in e.target.dataset))) return;
+    const yes = 'yes' in e.target.dataset;
+    try {
+      await api('my/sessions/' + row.dataset.id + (yes ? '/confirm' : '/missed'), { method: 'POST',
+        body: yes ? { minutes: Number(row.querySelector("[data-confirm-min]").value) } : {} });
+      toast(yes ? 'Confirmed' : 'Marked as not happening');
+      await load();
+    } catch(err){ toast(err.message, true); }
+  });
+
+  // ---- student emails we don't have yet ----
+  function renderMail(){
+    const missing = clients.filter(c => c.student && !c.student_email);
+    $('mailCard').hidden = !missing.length;
+    $('mailList').innerHTML = missing.map(c => `<div class="mail-row" data-client="${c.id}">
+      <span style="min-width:130px;"><strong>${esc(c.student)}</strong></span>
+      <input type="email" placeholder="${esc(c.student.split(' ')[0])}’s email" aria-label="${esc(c.student)}’s email">
+      <button class="btn btn-sm" data-savemail>Save</button></div>`).join('');
+  }
+  $('mailList').addEventListener('click', async e => {
+    if(!('savemail' in e.target.dataset)) return;
+    const row = e.target.closest('[data-client]');
+    try {
+      await api('my/clients/' + row.dataset.client, { method: 'PUT', body: { student_email: row.querySelector('input').value } });
+      toast('Thanks — saved');
+      clients = await api('my/clients');
+      renderMail();
+    } catch(err){ toast(err.message, true); }
+  });
+
   function render(){
-    const mins = sessions.reduce((s, x) => s + x.minutes, 0);
-    const hasPay = sessions.some(x => x.pay_rate !== null);
-    const pay = sessions.reduce((s, x) => s + (x.pay_rate !== null ? x.pay_rate * x.minutes / 60 : 0), 0);
-    $('statCount').textContent = sessions.length;
+    const held = sessions.filter(x => x.status === 'held');
+    const mins = held.reduce((s, x) => s + x.minutes, 0);
+    const hasPay = held.some(x => x.pay_rate !== null);
+    const pay = held.reduce((s, x) => s + (x.pay_rate !== null ? x.pay_rate * x.minutes / 60 : 0), 0);
+    $('statCount').textContent = held.length;
     $('statHours').textContent = hours(mins);
     $('statPay').textContent = hasPay ? money(round2(pay)) : '—';
 
@@ -210,8 +279,9 @@
       $('list').innerHTML = `<p class="empty">No sessions logged for ${esc(monthLabel(month))} yet.</p>`;
       return;
     }
+    const today = localISO();
     $('list').innerHTML = sessions.slice().reverse().map(s => `
-      <div class="sess">
+      <div class="sess ${s.status === 'cancelled' ? 'cancelled' : ''}">
         <div class="d">${esc(fmtDate(s.date))}<span>${esc(fmtTime(s.start_time))}</span></div>
         <div>
           <div class="c">${esc(s.client_name)}${s.student ? ' <span class="muted">· ' + esc(s.student) + '</span>' : ''}</div>
@@ -221,7 +291,9 @@
         <div class="actions">
           ${s.locked
             ? '<span class="pill ok" title="Billed to the client — ask a founder to change it">Invoiced</span>'
-            : `<button class="btn btn-sm" data-edit="${s.id}">Edit</button><button class="btn btn-sm btn-danger" data-del="${s.id}">Delete</button>`}
+            : s.status === 'cancelled' ? '<span class="pill">Didn’t happen</span>'
+            : s.status === 'scheduled' ? (s.date <= today ? '<span class="pill warn">Please confirm</span>' : '<span class="pill sched">Scheduled</span>')
+            : `<button class="btn btn-sm" data-edit="${s.id}">Edit</button><button class="btn btn-sm btn-danger" data-del="${s.id}">${s.was_scheduled ? 'Didn’t happen' : 'Delete'}</button>`}
         </div>
       </div>`).join('');
   }
@@ -252,7 +324,8 @@
     }
     if(delId){
       const s = sessions.find(x => x.id === Number(delId));
-      if(!confirm(`Delete the ${fmtDate(s.date)} session with ${s.client_name}?`)) return;
+      if(!confirm(s.was_scheduled ? `Mark the ${fmtDate(s.date)} session with ${s.client_name} as not having happened?`
+        : `Delete the ${fmtDate(s.date)} session with ${s.client_name}?`)) return;
       try { await api('my/sessions/' + delId, { method: 'DELETE' }); toast('Session deleted'); if(editingId === s.id) resetForm(); await load(); }
       catch(err){ toast(err.message, true); }
     }
