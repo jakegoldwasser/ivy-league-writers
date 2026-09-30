@@ -393,6 +393,7 @@
   });
 
   async function loadPeople(){
+    await flushRundowns(); // a fresh copy must not overwrite a rundown still being saved
     [users, clients] = await Promise.all([api('admin/users'), api('admin/clients')]);
     const tutorOpts = users.map(u => `<option value="${esc(u.email)}">${esc(u.name || u.email)}</option>`).join('');
     const clientOpts = clients.map(c => `<option value="${c.id}">${esc(c.name)}${c.student ? ' — ' + esc(c.student) : ''}${c.active ? '' : ' (inactive)'}</option>`).join('');
@@ -765,19 +766,58 @@
       <label class="lbl" style="margin:4px 0 0;">Rundown</label>
       <textarea data-f="summary" maxlength="4000" placeholder="Who they are, what they’re working toward, where things stand, what to watch for.">${esc(c.summary || '')}</textarea>
       <div class="row"><label class="row small"><input type="checkbox" data-f="active" ${c.active ? 'checked' : ''}> Active</label>
-        <span class="spacer"></span><span class="small muted" data-saved></span><button class="btn btn-sm btn-primary" data-savesummary>Save rundown</button></div>
+        <span class="spacer"></span><span class="small muted" data-saved>${esc(rundownState[c.id] || '')}</span></div>
     </div>`).join('') : '<p class="card empty">No students match.</p>';
   }
   $('dirList').addEventListener('click', async e => {
     const card = e.target.closest('[data-client]');
     if(!card) return;
     const id = card.dataset.client, f = n => card.querySelector(`[data-f="${n}"]`);
-    let change = null;
-    if('savesummary' in e.target.dataset) change = { summary: f('summary').value };
-    if('savemail' in e.target.dataset) change = { student_email: f('student_email').value };
-    if(!change) return;
-    try { await api('admin/client-fields/' + id, { method: 'PUT', body: change }); toast('Saved'); await loadPeople(); }
+    if(!('savemail' in e.target.dataset)) return;
+    try { await api('admin/client-fields/' + id, { method: 'PUT', body: { student_email: f('student_email').value } }); toast('Saved'); await loadPeople(); }
     catch(err){ toast(err.message, true); }
+  });
+
+  // Rundowns save themselves a moment after you stop typing (and when you
+  // click away), with the state shown on the card itself.
+  const rundownTimers = {}, rundownState = {};
+  function rundownStatus(id, text){
+    rundownState[id] = text;
+    const el = document.querySelector(`.scard[data-client="${id}"] [data-saved]`);
+    if(el) el.textContent = text;
+  }
+  async function saveRundown(id){
+    clearTimeout(rundownTimers[id]);
+    delete rundownTimers[id];
+    const c = clients.find(x => String(x.id) === String(id));
+    if(!c) return;
+    try {
+      await api('admin/client-fields/' + id, { method: 'PUT', body: { summary: c.summary || '' } });
+      rundownStatus(id, 'Saved');
+    } catch(err){
+      rundownStatus(id, 'Couldn’t save — retrying…');
+      rundownTimers[id] = setTimeout(() => saveRundown(id), 4000);
+    }
+  }
+  function flushRundowns(){
+    return Promise.all(Object.keys(rundownTimers).map(saveRundown));
+  }
+  $('dirList').addEventListener('input', e => {
+    if(e.target.dataset.f !== 'summary') return;
+    const id = e.target.closest('[data-client]').dataset.client;
+    const c = clients.find(x => String(x.id) === id);
+    if(c) c.summary = e.target.value; // so a redraw shows what's typed
+    rundownStatus(id, 'Saving…');
+    clearTimeout(rundownTimers[id]);
+    rundownTimers[id] = setTimeout(() => saveRundown(id), 800);
+  });
+  $('dirList').addEventListener('focusout', e => {
+    if(e.target.dataset.f !== 'summary') return;
+    const id = e.target.closest('[data-client]').dataset.client;
+    if(rundownTimers[id]) saveRundown(id);
+  });
+  window.addEventListener('beforeunload', e => {
+    if(Object.keys(rundownTimers).length){ flushRundowns(); e.preventDefault(); }
   });
   $('dirList').addEventListener('change', async e => {
     if(e.target.dataset.f !== 'active') return;
