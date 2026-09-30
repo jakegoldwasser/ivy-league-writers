@@ -619,7 +619,7 @@ async function adminRoutes(request, env, user, seg, url) {
   if (resource === 'clients') {
     if (!id && method === 'GET') {
       const today = todayLocal();
-      const [{ results: clients }, { results: links }, { results: packages }] = await env.DB.batch([
+      const [{ results: clients }, { results: links }, { results: packages }, { results: docs }, { results: contracts }] = await env.DB.batch([
         env.DB.prepare(`SELECT c.*,
             (SELECT COUNT(*) FROM sessions s WHERE s.client_id = c.id) AS session_count,
             (SELECT COUNT(*) FROM sessions s WHERE s.client_id = c.id AND s.status = 'held') AS held_count,
@@ -632,10 +632,14 @@ async function adminRoutes(request, env, user, seg, url) {
           FROM clients c ORDER BY c.active DESC, c.name`).bind(today),
         env.DB.prepare('SELECT tutor_email, client_id, pay_rate, client_rate FROM tutor_clients'),
         env.DB.prepare('SELECT * FROM packages ORDER BY purchased_on DESC, id DESC'),
+        env.DB.prepare('SELECT id, client_id, title, url, created_at FROM client_links ORDER BY created_at, id'),
+        env.DB.prepare('SELECT id, client_id, title, created_at FROM contracts ORDER BY created_at DESC'),
       ]);
       for (const c of clients) {
         c.tutors = links.filter(l => l.client_id === c.id);
         c.packages = packages.filter(p => p.client_id === c.id);
+        c.docs = docs.filter(d => d.client_id === c.id);
+        c.contracts = contracts.filter(k => k.client_id === c.id);
         c.package_left = c.package_sessions - c.paid_used;
       }
       return json(clients);
@@ -668,10 +672,12 @@ async function adminRoutes(request, env, user, seg, url) {
       const clientId = intParam(id);
       const inv = await env.DB.prepare('SELECT COUNT(*) AS n FROM invoices WHERE client_id = ?').bind(clientId).first();
       if (inv.n) throw new HttpError(409, 'This client has invoices, so they can’t be deleted. Untick Active instead.');
-      const [sess, , , del] = await env.DB.batch([
+      const [sess, , , , , del] = await env.DB.batch([
         env.DB.prepare('DELETE FROM sessions WHERE client_id = ?').bind(clientId),
         env.DB.prepare('DELETE FROM tutor_clients WHERE client_id = ?').bind(clientId),
         env.DB.prepare('DELETE FROM packages WHERE client_id = ?').bind(clientId),
+        env.DB.prepare('DELETE FROM client_links WHERE client_id = ?').bind(clientId),
+        env.DB.prepare('DELETE FROM contracts WHERE client_id = ?').bind(clientId),
         env.DB.prepare('DELETE FROM clients WHERE id = ?').bind(clientId),
       ]);
       if (!del.meta.changes) throw new HttpError(404, 'Client not found.');
@@ -710,6 +716,53 @@ async function adminRoutes(request, env, user, seg, url) {
     if (id && method === 'DELETE') {
       const r = await env.DB.prepare('DELETE FROM packages WHERE id = ?').bind(intParam(id)).run();
       if (!r.meta.changes) throw new HttpError(404, 'Package not found.');
+      return json({ ok: true });
+    }
+  }
+
+  // A student's working docs: { client_id, title, url }.
+  if (resource === 'client-links') {
+    if (!id && method === 'POST') {
+      const b = await body(request);
+      const clientId = intParam(b.client_id, 'Pick a client.');
+      const url = str(b.url, 1000, 'Link');
+      if (!/^https:\/\/\S+$/.test(url)) bad('Paste a full link starting with https://');
+      const title = str(b.title, 200, 'Title') || linkTitle(url);
+      const row = await env.DB.prepare('INSERT INTO client_links (client_id, title, url, added_by) VALUES (?, ?, ?, ?) RETURNING id')
+        .bind(clientId, title, url, user.email).first();
+      return json({ id: row.id }, 201);
+    }
+    if (id && method === 'DELETE') {
+      const r = await env.DB.prepare('DELETE FROM client_links WHERE id = ?').bind(intParam(id)).run();
+      if (!r.meta.changes) throw new HttpError(404, 'Link not found.');
+      return json({ ok: true });
+    }
+  }
+
+  // Agreements saved from /contract: POST { client_id, title, form, html }.
+  if (resource === 'contracts') {
+    if (!id && method === 'POST') {
+      const b = await body(request);
+      const clientId = intParam(b.client_id, 'Pick a client.');
+      if (!(await env.DB.prepare('SELECT 1 FROM clients WHERE id = ?').bind(clientId).first())) bad('Client not found.');
+      const html = typeof b.html === 'string' ? b.html : '';
+      if (!html.trim() || html.length > 900000) bad('The agreement is empty or too large to save.');
+      const form = JSON.stringify(b.form && typeof b.form === 'object' ? b.form : {});
+      if (form.length > 20000) bad('The agreement details are too large to save.');
+      const cid = crypto.randomUUID();
+      await env.DB.prepare('INSERT INTO contracts (id, client_id, title, form, html, created_by) VALUES (?, ?, ?, ?, ?, ?)')
+        .bind(cid, clientId, str(b.title, 200, 'Title') || 'Agreement', form, html, user.email).run();
+      return json({ id: cid }, 201);
+    }
+    if (id && method === 'GET') {
+      const row = await env.DB.prepare(`SELECT k.*, c.name AS client_name, c.student FROM contracts k JOIN clients c ON c.id = k.client_id
+          WHERE k.id = ?`).bind(id).first();
+      if (!row) throw new HttpError(404, 'Agreement not found.');
+      return json({ ...row, form: JSON.parse(row.form || '{}') });
+    }
+    if (id && method === 'DELETE') {
+      const r = await env.DB.prepare('DELETE FROM contracts WHERE id = ?').bind(id).run();
+      if (!r.meta.changes) throw new HttpError(404, 'Agreement not found.');
       return json({ ok: true });
     }
   }
@@ -1250,6 +1303,15 @@ function str(v, max, field) {
   if (v.length > max) bad(`${field} is too long.`);
   return v;
 }
+// A readable name for a pasted link when none is given.
+function linkTitle(url) {
+  if (/docs\.google\.com\/document/.test(url)) return 'Google Doc';
+  if (/docs\.google\.com\/spreadsheets/.test(url)) return 'Google Sheet';
+  if (/docs\.google\.com\/presentation/.test(url)) return 'Google Slides';
+  if (/drive\.google\.com/.test(url)) return 'Google Drive';
+  try { return new URL(url).hostname; } catch { return 'Link'; }
+}
+
 function emailParam(v, field) {
   const e = str(v, 200, field).toLowerCase();
   if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) bad(`${field} doesn’t look like an email address.`);

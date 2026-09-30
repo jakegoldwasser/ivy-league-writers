@@ -120,7 +120,19 @@
     .preview{ padding:30px 22px; }
   }
 
+  /* Saving to a client in the portal, and viewing a saved agreement */
+  .portalField{ background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 12px; margin-bottom:14px; }
+  .portalField select{ width:100%; }
+  .saveState{ font-size:12.5px; color:var(--ink-soft); }
+  .viewBanner{ display:none; max-width:900px; margin:0 auto 16px; padding:12px 16px; border:1px solid var(--border); border-radius:10px;
+    background:var(--surface-2); font-size:14px; align-items:center; gap:12px; flex-wrap:wrap; }
+  body.viewing .viewBanner{ display:flex; }
+  body.viewing .formPane, body.viewing .mobileTabs{ display:none !important; }
+  body.viewing .workspace{ display:block !important; }
+  body.viewing .previewPane{ display:block !important; }
+
   @media print{
+    .viewBanner{ display:none !important; }
     .mobileTabs, .formPane, .toolbar{ display:none !important; }
     .previewPane{ display:block !important; }
     body, .page{ background:#fff; padding:0; margin:0; }
@@ -152,6 +164,10 @@
 <body>
 <a href="/" class="backlink">&larr; palisadewriters.com</a>
 <div class="page">
+  <div class="viewBanner" id="viewBanner">
+    <span id="viewText" style="flex:1"></span>
+    <button class="btn btn-primary" id="viewPrintBtn" type="button">Print / Save as PDF</button>
+  </div>
   <div class="mobileTabs">
     <button id="tabFormBtn" class="active">Fill in details</button>
     <button id="tabPreviewBtn">Preview agreement</button>
@@ -165,6 +181,12 @@
       </div>
 
       <form id="theForm">
+        <div class="portalField" id="portalField" hidden>
+          <label class="lbl" for="portalClient">Client in the portal</label>
+          <select id="portalClient"><option value="">Choose a client…</option></select>
+          <p class="saveState" style="margin:6px 0 0;">Picking one fills in the names. <b>Save to client</b> below keeps this agreement on their file.</p>
+        </div>
+        <p class="saveState" id="portalHint" hidden style="margin:0 0 12px;">To save agreements to a client’s file, <a href="/invoice" target="_blank" rel="noopener">sign in to the founder portal</a>, then reload this page.</p>
         <fieldset>
           <legend>Parties</legend>
           <div class="field">
@@ -288,8 +310,10 @@
         <button class="btn btn-primary" id="printBtn">Print / Save as PDF</button>
         <button class="btn btn-ghost" id="copyBtn">Copy contract text</button>
         <button class="btn btn-ghost" id="invoiceOnlyBtn">Invoice only</button>
+        <button class="btn btn-ghost" id="saveToClientBtn" type="button" hidden>Save to client</button>
         <button class="btn btn-ghost" id="resetBtn">Reset</button>
         <span class="copied" id="copiedMsg" style="display:none;">Copied!</span>
+        <span class="saveState" id="saveState"></span>
       </div>
     </div>
 
@@ -693,6 +717,77 @@
       setTimeout(() => { $('copiedMsg').style.display = 'none'; }, 1800);
     }
   });
+
+  // ---- The founder portal: keep agreements on a client's file ----
+  // Signed-in founders get a client picker and "Save to client"; everyone
+  // else gets the builder as before. ?client=<id> preselects a client;
+  // ?view=<id> shows a saved agreement exactly as it was saved.
+  const params = new URLSearchParams(location.search);
+  let portalClients = [];
+  async function portalApi(path, opts = {}){
+    const res = await fetch('/api/' + path, {
+      method: opts.method || 'GET', credentials: 'same-origin',
+      headers: opts.body ? { 'Content-Type': 'application/json' } : {},
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if(!res.ok) throw new Error(data.error || 'Request failed (' + res.status + ')');
+    return data;
+  }
+  function pickClient(id){
+    const c = portalClients.find(x => String(x.id) === String(id));
+    if(!c) return;
+    $('portalClient').value = String(c.id);
+    if(!$('clientName').value.trim()) $('clientName').value = c.name;
+    if(!$('studentName').value.trim() && c.student) $('studentName').value = c.student;
+    render();
+  }
+  $('portalClient').addEventListener('change', () => { pickClient($('portalClient').value); $('saveState').textContent = ''; });
+  $('saveToClientBtn').addEventListener('click', async () => {
+    const id = $('portalClient').value;
+    if(!id){ $('saveState').textContent = 'Choose the client at the top first.'; $('portalField').scrollIntoView({ behavior: 'smooth' }); return; }
+    const pricing = radioVal('pricing');
+    const title = (previewMode === 'invoice' ? 'Invoice' : 'Agreement') + ' · ' +
+      (pricing === 'package' ? radioVal('tier') + ' package' : 'Hourly') + ' · ' + ($('effDate').value || new Date().toISOString().slice(0, 10));
+    $('saveToClientBtn').disabled = true;
+    try {
+      const r = await portalApi('admin/contracts', { method: 'POST', body: {
+        client_id: Number(id), title, html: $('preview').innerHTML,
+        form: { ...buildLogPayload(), view: previewMode },
+      }});
+      const c = portalClients.find(x => String(x.id) === String(id));
+      $('saveState').innerHTML = 'Saved to ' + esc(c ? c.name : 'the client') + '’s file · <a href="/contract?view=' + esc(r.id) + '" target="_blank" rel="noopener">view</a>';
+    } catch(err){ $('saveState').textContent = err.message; }
+    finally { $('saveToClientBtn').disabled = false; }
+  });
+  $('viewPrintBtn').addEventListener('click', () => window.print());
+
+  (async () => {
+    let me = null;
+    try { me = await portalApi('me'); } catch(e){}
+    const viewId = params.get('view');
+    if(viewId){
+      document.body.classList.add('viewing');
+      try {
+        const k = await portalApi('admin/contracts/' + encodeURIComponent(viewId));
+        $('preview').innerHTML = k.html;
+        $('viewText').innerHTML = '<b>' + esc(k.title) + '</b> for ' + esc(k.client_name) + (k.student ? ' (' + esc(k.student) + ')' : '') +
+          ' · saved ' + esc(k.created_at.slice(0, 10)) + ' by ' + esc(k.created_by);
+        document.title = (k.client_name + '_' + k.title).replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_');
+      } catch(err){
+        $('viewText').textContent = me ? err.message : 'Sign in to the founder portal (/invoice) to see saved agreements.';
+        $('preview').innerHTML = '';
+      }
+      return;
+    }
+    if(!me || me.role !== 'founder'){ $('portalHint').hidden = false; return; }
+    try { portalClients = await portalApi('admin/clients'); } catch(e){ return; }
+    $('portalClient').innerHTML = '<option value="">Choose a client…</option>' + portalClients.filter(c => c.active || String(c.id) === params.get('client'))
+      .map(c => '<option value="' + c.id + '">' + esc(c.name) + (c.student ? ' — ' + esc(c.student) : '') + '</option>').join('');
+    $('portalField').hidden = false;
+    $('saveToClientBtn').hidden = false;
+    if(params.get('client')) pickClient(params.get('client'));
+  })();
 
   // mobile tabs
   const tabForm = $('tabFormBtn'), tabPreview = $('tabPreviewBtn');

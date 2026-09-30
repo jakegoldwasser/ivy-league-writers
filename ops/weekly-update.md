@@ -74,6 +74,10 @@ comment notifications, payment alerts from Zelle/PayPal/Venmo) and Drive
   clear from the email, add it:
   `INSERT INTO packages (client_id, sessions, purchased_on, amount, notes, created_by) VALUES (...,'weekly-update')`.
   If the count isn't clear, report it instead.
+- **Docs**: for each Google Doc/Sheet/Slides file the student shared with Jake
+  (or Jake shared with them) that isn't already linked, add it:
+  `INSERT INTO client_links (client_id, title, url, added_by) VALUES (<id>, '<file title>', '<view url>', 'weekly-update');`
+  (check `SELECT url FROM client_links WHERE client_id = <id>` first).
 - **Rundown** (`clients.summary`, 100-200 words, up to ~300 for complex cases):
   keep it a current picture of the case (who, goals, deadlines, where the work
   lives, what's next, anything to watch), not a diary. Fold in what changed

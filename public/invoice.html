@@ -63,6 +63,14 @@
   .scard .addmail{ display:flex; gap:6px; }
   .scard .addmail input{ flex:1; }
   .pkgs{ font-size:12.5px; margin:6px 0 0; padding-left:18px; }
+  .attach{ font-size:13px; }
+  .attach ul{ margin:4px 0 0; padding-left:18px; }
+  .attach li{ margin:2px 0; }
+  .attach .x{ border:none; background:none; color:var(--ink-soft); cursor:pointer; font-size:12px; padding:0 4px; }
+  .attach .x:hover{ color:var(--rust); }
+  .attach .adddoc{ display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+  .attach .adddoc input{ flex:1; min-width:120px; }
+  .attach .muted-line{ color:var(--ink-soft); font-size:12.5px; }
 
   /* Invoice document — mirrors the invoice block on /contract */
   .doc{ background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); padding:36px 40px; font-family:'Source Serif 4', Georgia, serif; }
@@ -376,6 +384,56 @@
   const billBadge = (mode, extra) => mode === 'paid'
     ? `<span class="bill paid" title="PAID: sessions come out of a prepaid package">${ICON_PAID}PAID${extra ? ' · ' + esc(extra) : ''}</span>`
     : `<span class="bill billable" title="BILLABLE: sessions get invoiced">${ICON_BILL}BILLABLE</span>`;
+  // A student's working docs and saved agreements, shown on the Students
+  // card and in the client editor.
+  function attachHtml(c){
+    const docs = (c.docs || []).map(d => `<li><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.title)}</a>
+      <button type="button" class="x" data-deldoc="${d.id}" title="Remove this link" aria-label="Remove">✕</button></li>`).join('');
+    const contracts = (c.contracts || []).map(k => `<li><a href="/contract?view=${esc(k.id)}" target="_blank" rel="noopener">${esc(k.title)}</a>
+      <span class="muted-line">· ${esc(fmtDate(k.created_at.slice(0, 10), { month: 'short', day: 'numeric', year: 'numeric' }))}</span></li>`).join('');
+    return `<div class="attach" data-attach="${c.id}">
+      <label class="lbl" style="margin:4px 0 0;">Docs</label>
+      ${docs ? `<ul>${docs}</ul>` : '<div class="muted-line">No docs linked yet.</div>'}
+      <div class="adddoc"><input type="text" class="compact" data-f="doc_title" placeholder="Title (optional)" style="max-width:160px">
+        <input type="url" class="compact" data-f="doc_url" placeholder="Paste a Google Doc link">
+        <button type="button" class="btn btn-sm" data-adddoc>Add</button></div>
+      <label class="lbl" style="margin:10px 0 0;">Contracts</label>
+      ${contracts ? `<ul>${contracts}</ul>` : '<div class="muted-line">None saved yet.</div>'}
+      <div style="margin-top:4px"><a class="small" href="/contract?client=${c.id}" target="_blank" rel="noopener">+ New agreement for ${esc(c.name)}</a></div>
+    </div>`;
+  }
+  async function attachClick(e){
+    const box = e.target.closest('[data-attach]');
+    if(!box) return false;
+    const clientId = Number(box.dataset.attach);
+    if('adddoc' in e.target.dataset){
+      const url = box.querySelector('[data-f="doc_url"]').value.trim();
+      if(!url){ toast('Paste a link first.', true); return true; }
+      try {
+        await api('admin/client-links', { method: 'POST', body: { client_id: clientId, url, title: box.querySelector('[data-f="doc_title"]').value } });
+        toast('Doc linked'); await refreshAfterAttach(clientId);
+      } catch(err){ toast(err.message, true); }
+      return true;
+    }
+    if(e.target.dataset.deldoc){
+      if(!confirm('Remove this link? The doc itself isn’t touched.')) return true;
+      try { await api('admin/client-links/' + e.target.dataset.deldoc, { method: 'DELETE' }); toast('Link removed'); await refreshAfterAttach(clientId); }
+      catch(err){ toast(err.message, true); }
+      return true;
+    }
+    return false;
+  }
+  // Enter in the link boxes adds the link (and never submits the client form).
+  document.addEventListener('keydown', e => {
+    if(e.key !== 'Enter' || !e.target.closest('.adddoc')) return;
+    e.preventDefault();
+    e.target.closest('.adddoc').querySelector('[data-adddoc]').click();
+  });
+  async function refreshAfterAttach(clientId){
+    await loadPeople();
+    if(editingClient && editingClient.id === clientId){ editingClient = clients.find(x => x.id === clientId) || null; renderClientEditor(); }
+  }
+
   const pkgLeft = c => !c.package_sessions ? 'no package' : c.package_left < 0
     ? `${-c.package_left} over (${c.package_sessions} bought)` : `${c.package_left} of ${c.package_sessions} left`;
   const storage = {
@@ -763,13 +821,15 @@
       ${c.student_email ? '' : `<div class="addmail"><input type="email" class="compact" data-f="student_email" placeholder="Student’s email" value="${esc(c.suggested_student_email || '')}">
         <button class="btn btn-sm" data-savemail>Save</button></div>
         ${c.suggested_student_email ? '<p class="small muted" style="margin:0">Suggested: this student signed in to /student with that address.</p>' : ''}`}
-      <label class="lbl" style="margin:4px 0 0;">Rundown</label>
+      ${attachHtml(c)}
+      <label class="lbl" style="margin:10px 0 0;">Rundown</label>
       <textarea data-f="summary" maxlength="4000" placeholder="Who they are, what they’re working toward, where things stand, what to watch for.">${esc(c.summary || '')}</textarea>
       <div class="row"><label class="row small"><input type="checkbox" data-f="active" ${c.active ? 'checked' : ''}> Active</label>
         <span class="spacer"></span><span class="small muted" data-saved>${esc(rundownState[c.id] || '')}</span></div>
     </div>`).join('') : '<p class="card empty">No students match.</p>';
   }
   $('dirList').addEventListener('click', async e => {
+    if(await attachClick(e)) return;
     const card = e.target.closest('[data-client]');
     if(!card) return;
     const id = card.dataset.client, f = n => card.querySelector(`[data-f="${n}"]`);
@@ -1248,6 +1308,8 @@
         <div><label class="lbl" for="pkAmount">Amount paid <span class="hint">(optional)</span></label><input type="number" id="pkAmount" min="0" step="1"></div>
         <div class="row" style="align-items:end;"><button type="button" class="btn" id="pkAdd">Add package</button></div>
       </div>
+      <h3>Docs &amp; contracts</h3>
+      ${attachHtml(c)}
       <h3>Tutors for this client</h3>
       <p class="small muted">Tick who works with ${esc(c.name)}. Leave a rate blank to use the defaults (the tutor's pay rate, the client's rate).</p>
       <div class="tablewrap"><table>
@@ -1268,6 +1330,7 @@
       </div>
     </form>`;
     $('cCancel').addEventListener('click', () => { editingClient = null; renderClientEditor(); });
+    $('clientEditor').querySelector('[data-attach]')?.addEventListener('click', attachClick);
     $('pkAdd')?.addEventListener('click', async () => {
       try {
         await api('admin/packages', { method: 'POST', body: { client_id: c.id, sessions: Number($('pkSessions').value),
