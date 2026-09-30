@@ -7,6 +7,11 @@
 const COOKIE = 'pw_session';
 const SESSION_DAYS = 14;
 const SERVICES = ['Tutoring session', 'Essay / async feedback', 'Consultation', 'Prep', 'Other'];
+// Session dates and times are wall-clock times here.
+const TZ = 'America/New_York';
+// Calendar invites come from this address (set CALENDAR_ORGANIZER to change it).
+const DEFAULT_ORGANIZER = 'jake@palisadewriters.com';
+const MAX_SCHEDULE = 60;
 
 export default {
   async fetch(request, env) {
@@ -29,25 +34,65 @@ export default {
 };
 
 async function runMonthlyBilling(env) {
-  const founders = (env.FOUNDER_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  if (!founders.length) { console.error('No FOUNDER_EMAILS configured; skipping monthly billing run.'); return; }
+  const founders = await founderEmails(env);
+  if (!founders.length) { console.error('No founders configured; skipping monthly billing run.'); return; }
   const systemUser = { email: founders[0] };
   const period = previousMonth(new Date());
   const issued_date = new Date().toISOString().slice(0, 10);
 
   const invoices = await generateAllInvoices(env, systemUser, period, { issued_date, due_text: 'Within 7 days of this invoice', llc: false });
   const payroll = await computeMonthlyPayroll(env, period);
+  const unconfirmed = await unconfirmedSessions(env);
 
   if (!env.RESEND_API_KEY) { console.error('No RESEND_API_KEY configured; skipping monthly billing email.'); return; }
-  await sendMonthlyEmail(env, founders, period, invoices, payroll);
+  await sendMonthlyEmail(env, founders, period, invoices, payroll, unconfirmed);
 }
+
+// Every active founder in the portal (so Abby as well as Jake), plus the
+// FOUNDER_EMAILS in the config. Billing email goes to these people and
+// never to a tutor.
+async function founderEmails(env) {
+  const { results } = await env.DB.prepare("SELECT email FROM users WHERE role = 'founder' AND active = 1").all();
+  const fromConfig = (env.FOUNDER_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  return [...new Set([...fromConfig, ...results.map(r => r.email)])];
+}
+
+// Scheduled sessions whose day has passed but the tutor hasn't confirmed.
+async function unconfirmedSessions(env) {
+  const { results } = await env.DB.prepare(`SELECT s.id, s.date, s.start_time, u.name AS tutor_name, s.tutor_email,
+      c.name AS client_name, c.student FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
+      WHERE s.status = 'scheduled' AND s.date < ? ORDER BY s.date`).bind(todayLocal()).all();
+  return results;
+}
+
+// Sends one email through Resend. Never throws: returns { ok, error }.
+async function sendEmail(env, msg) {
+  if (!env.RESEND_API_KEY) return { ok: false, error: 'Email isn’t set up (no RESEND_API_KEY).' };
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.RESEND_API_KEY}` },
+      body: JSON.stringify(msg),
+    });
+    if (res.ok) return { ok: true };
+    const text = await res.text();
+    console.error('Resend email failed:', res.status, text);
+    // Resend allows a few requests a second; one retry after a pause covers a burst.
+    if (res.status === 429 && !msg._retried) { await sleep(1200); return sendEmail(env, { ...msg, _retried: true }); }
+    return { ok: false, error: `Email failed (${res.status}).` };
+  } catch (err) {
+    console.error('Resend email error:', err);
+    return { ok: false, error: 'Could not reach the email service.' };
+  }
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 function previousMonth(d) {
   const prev = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1));
   return prev.toISOString().slice(0, 7);
 }
 
-async function sendMonthlyEmail(env, founders, period, invoices, payroll) {
+async function sendMonthlyEmail(env, founders, period, invoices, payroll, unconfirmed) {
   const table = (items, label) => items.length
     ? `<table cellpadding="4" cellspacing="0"><tr><th align="left">${label}</th><th align="right">Total</th></tr>${
         items.map(i => `<tr><td>${esc(i.name)} (${esc(i.number)})</td><td align="right">$${i.total.toFixed(2)}</td></tr>`).join('')
@@ -69,19 +114,17 @@ async function sendMonthlyEmail(env, founders, period, invoices, payroll) {
     ${skippedList(invoices.skipped)}
     <h3>Payroll owed</h3>
     ${payrollTable}
+    ${unconfirmed.length ? `<h3>Waiting for the tutor to confirm (${unconfirmed.length})</h3>
+    <p>Scheduled sessions whose day has passed. They aren't paid or invoiced until they're confirmed.</p>
+    <ul>${unconfirmed.map(u => `<li>${esc(u.date)} ${esc(u.start_time)} — ${esc(u.client_name)}${u.student ? ' (' + esc(u.student) + ')' : ''} with ${esc(u.tutor_name || u.tutor_email)}</li>`).join('')}</ul>` : ''}
   `;
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.RESEND_API_KEY}` },
-    body: JSON.stringify({
-      from: env.EMAIL_FROM || 'Palisade Writers <billing@palisadewriters.com>',
-      to: founders,
-      subject: `Palisade Writers — ${period} invoices & payroll summary`,
-      html,
-    }),
+  await sendEmail(env, {
+    from: env.EMAIL_FROM || 'Palisade Writers <billing@palisadewriters.com>',
+    to: founders,
+    subject: `Palisade Writers — ${period} invoices & payroll summary`,
+    html,
   });
-  if (!res.ok) console.error('Resend email failed:', res.status, await res.text());
 }
 
 function esc(s) {
@@ -369,10 +412,23 @@ async function myRoutes(request, env, user, seg, url) {
 
   if (seg[0] === 'clients' && seg.length === 1 && method === 'GET') {
     const { results } = user.role === 'founder'
-      ? await env.DB.prepare('SELECT id, name, student FROM clients WHERE active = 1 ORDER BY name').all()
-      : await env.DB.prepare(`SELECT c.id, c.name, c.student FROM tutor_clients tc JOIN clients c ON c.id = tc.client_id
+      ? await env.DB.prepare('SELECT id, name, student, student_email FROM clients WHERE active = 1 ORDER BY name').all()
+      : await env.DB.prepare(`SELECT c.id, c.name, c.student, c.student_email FROM tutor_clients tc JOIN clients c ON c.id = tc.client_id
           WHERE tc.tutor_email = ? AND c.active = 1 ORDER BY c.name`).bind(user.email).all();
     return json(results);
+  }
+
+  // PUT /api/my/clients/:id { student_email } -- tutors help collect student
+  // emails (for calendar invites). Only fills in a blank one; changing an
+  // existing address is a founder's job.
+  if (seg[0] === 'clients' && seg.length === 2 && method === 'PUT') {
+    const clientId = intParam(seg[1]);
+    await assertCanUseClient(env, user, clientId);
+    const email = emailParam((await body(request)).student_email, 'Student email');
+    if (!email) bad('Enter the student’s email.');
+    const r = await env.DB.prepare("UPDATE clients SET student_email = ? WHERE id = ? AND student_email = ''").bind(email, clientId).run();
+    if (!r.meta.changes) throw new HttpError(409, 'This student already has an email on file. Ask a founder to change it.');
+    return json({ ok: true });
   }
 
   if (seg[0] !== 'sessions') throw new HttpError(404, 'Not found.');
@@ -381,21 +437,62 @@ async function myRoutes(request, env, user, seg, url) {
     const month = monthParam(url.searchParams.get('month'));
     // Deliberately no client billing rates here.
     const { results } = await env.DB.prepare(`SELECT s.id, s.client_id, c.name AS client_name, c.student, s.date, s.start_time,
-        s.minutes, s.service, s.notes, s.pay_rate, (s.invoice_id IS NOT NULL) AS locked
+        s.minutes, s.service, s.notes, s.pay_rate, s.status, (s.scheduled_by IS NOT NULL) AS was_scheduled,
+        (s.invoice_id IS NOT NULL) AS locked
         FROM sessions s JOIN clients c ON c.id = s.client_id
         WHERE s.tutor_email = ? AND substr(s.date, 1, 7) = ? ORDER BY s.date, s.start_time, s.id`)
       .bind(user.email, month).all();
     return json(results);
   }
 
+  // Scheduled sessions past their day, any month -- the "please confirm" list.
+  if (seg[1] === 'unconfirmed' && seg.length === 2 && method === 'GET') {
+    const { results } = await env.DB.prepare(`SELECT s.id, s.client_id, c.name AS client_name, c.student, s.date, s.start_time,
+        s.minutes, s.service FROM sessions s JOIN clients c ON c.id = s.client_id
+        WHERE s.tutor_email = ? AND s.status = 'scheduled' AND s.date <= ? ORDER BY s.date, s.start_time`)
+      .bind(user.email, todayLocal()).all();
+    return json(results);
+  }
+
   if (seg.length === 1 && method === 'POST') {
     const s = sessionFields(await body(request));
     await assertCanUseClient(env, user, s.client_id);
+    // Logging a session that was already booked for that day confirms the
+    // booking instead of adding a second copy of it.
+    const booked = await env.DB.prepare(`SELECT id FROM sessions WHERE tutor_email = ? AND client_id = ? AND date = ?
+        AND status = 'scheduled' ORDER BY start_time LIMIT 1`).bind(user.email, s.client_id, s.date).first();
+    if (booked) {
+      if (s.date > todayLocal()) bad('That session is scheduled for later. Log it on or after the day it happens.');
+      await env.DB.prepare(`UPDATE sessions SET status = 'held', start_time = ?, minutes = ?, service = ?, notes = ?,
+          updated_at = datetime('now') WHERE id = ?`).bind(s.start_time, s.minutes, s.service, s.notes, booked.id).run();
+      return json({ id: booked.id, confirmed: true }, 200);
+    }
     const payRate = await defaultPayRate(env, user.email, s.client_id);
-    const row = await env.DB.prepare(`INSERT INTO sessions (tutor_email, client_id, date, start_time, minutes, service, notes, pay_rate)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
-      .bind(user.email, s.client_id, s.date, s.start_time, s.minutes, s.service, s.notes, payRate).first();
+    const client = await env.DB.prepare('SELECT billing_mode FROM clients WHERE id = ?').bind(s.client_id).first();
+    const row = await env.DB.prepare(`INSERT INTO sessions (tutor_email, client_id, date, start_time, minutes, service, notes, pay_rate, billing)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
+      .bind(user.email, s.client_id, s.date, s.start_time, s.minutes, s.service, s.notes, payRate, client.billing_mode).first();
     return json({ id: row.id }, 201);
+  }
+
+  // POST /api/my/sessions/:id/confirm { minutes?, notes? } -- it happened.
+  // POST /api/my/sessions/:id/missed -- it didn't.
+  if (seg.length === 3 && method === 'POST' && (seg[2] === 'confirm' || seg[2] === 'missed')) {
+    const id = intParam(seg[1]);
+    const existing = await env.DB.prepare('SELECT * FROM sessions WHERE id = ? AND tutor_email = ?').bind(id, user.email).first();
+    if (!existing) throw new HttpError(404, 'Session not found.');
+    if (existing.status !== 'scheduled') throw new HttpError(409, 'This session isn’t waiting to be confirmed.');
+    if (existing.date > todayLocal()) bad('You can confirm a session on or after its day.');
+    if (seg[2] === 'missed') {
+      await env.DB.prepare("UPDATE sessions SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").bind(id).run();
+      return json({ ok: true });
+    }
+    const b = await body(request);
+    const minutes = b.minutes === undefined || b.minutes === null || b.minutes === '' ? existing.minutes : minutesParam(b.minutes);
+    const notes = b.notes === undefined ? existing.notes : str(b.notes, 2000, 'Notes');
+    await env.DB.prepare(`UPDATE sessions SET status = 'held', minutes = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`)
+      .bind(minutes, notes, id).run();
+    return json({ ok: true });
   }
 
   if (seg.length === 2 && (method === 'PUT' || method === 'DELETE')) {
@@ -403,15 +500,23 @@ async function myRoutes(request, env, user, seg, url) {
     const existing = await env.DB.prepare('SELECT * FROM sessions WHERE id = ? AND tutor_email = ?').bind(id, user.email).first();
     if (!existing) throw new HttpError(404, 'Session not found.');
     if (existing.invoice_id) throw new HttpError(409, 'This session has already been invoiced. Ask a founder to change it.');
+    // A booking's day, time and invitees are the founders' to change (they
+    // go out as calendar invites); the tutor confirms it or marks it missed.
+    if (existing.status !== 'held') throw new HttpError(409, 'This session was scheduled by a founder. Confirm it, or mark that it didn’t happen.');
     if (daysAgo(existing.date) > 31) throw new HttpError(409, "Sessions more than 31 days old can't be changed. Ask a founder to fix it.");
 
     if (method === 'DELETE') {
+      if (existing.scheduled_by) {
+        await env.DB.prepare("UPDATE sessions SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").bind(id).run();
+        return json({ ok: true, cancelled: true });
+      }
       await env.DB.prepare('DELETE FROM sessions WHERE id = ?').bind(id).run();
       return json({ ok: true });
     }
     const s = sessionFields(await body(request));
     let payRate = existing.pay_rate;
     if (s.client_id !== existing.client_id) {
+      if (existing.scheduled_by) bad('This session was scheduled for a particular client. Ask a founder to move it.');
       await assertCanUseClient(env, user, s.client_id);
       payRate = await defaultPayRate(env, user.email, s.client_id);
     }
@@ -512,14 +617,26 @@ async function adminRoutes(request, env, user, seg, url) {
   // Clients (with their tutor assignments)
   if (resource === 'clients') {
     if (!id && method === 'GET') {
-      const [{ results: clients }, { results: links }] = await env.DB.batch([
+      const today = todayLocal();
+      const [{ results: clients }, { results: links }, { results: packages }] = await env.DB.batch([
         env.DB.prepare(`SELECT c.*,
             (SELECT COUNT(*) FROM sessions s WHERE s.client_id = c.id) AS session_count,
-            (SELECT COUNT(*) FROM invoices i WHERE i.client_id = c.id) AS invoice_count
-          FROM clients c ORDER BY c.active DESC, c.name`),
+            (SELECT COUNT(*) FROM sessions s WHERE s.client_id = c.id AND s.status = 'held') AS held_count,
+            (SELECT COUNT(*) FROM invoices i WHERE i.client_id = c.id) AS invoice_count,
+            (SELECT COALESCE(SUM(p.sessions), 0) FROM packages p WHERE p.client_id = c.id) AS package_sessions,
+            (SELECT COUNT(*) FROM sessions s WHERE s.client_id = c.id AND s.billing = 'paid' AND s.status != 'cancelled') AS paid_used,
+            (SELECT MAX(s.date) FROM sessions s WHERE s.client_id = c.id AND s.status = 'held') AS last_session,
+            (SELECT MIN(s.date || ' ' || s.start_time) FROM sessions s WHERE s.client_id = c.id AND s.status = 'scheduled' AND s.date >= ?1) AS next_session,
+            (SELECT st.email FROM students st WHERE c.student_email = '' AND c.student != '' AND lower(st.name) = lower(c.student) LIMIT 1) AS suggested_student_email
+          FROM clients c ORDER BY c.active DESC, c.name`).bind(today),
         env.DB.prepare('SELECT tutor_email, client_id, pay_rate, client_rate FROM tutor_clients'),
+        env.DB.prepare('SELECT * FROM packages ORDER BY purchased_on DESC, id DESC'),
       ]);
-      for (const c of clients) c.tutors = links.filter(l => l.client_id === c.id);
+      for (const c of clients) {
+        c.tutors = links.filter(l => l.client_id === c.id);
+        c.packages = packages.filter(p => p.client_id === c.id);
+        c.package_left = c.package_sessions - c.paid_used;
+      }
       return json(clients);
     }
     if (method === 'POST' || method === 'PUT') {
@@ -528,16 +645,17 @@ async function adminRoutes(request, env, user, seg, url) {
       if (!name) bad('Client name is required.');
       const defaultRate = rateParam(b.default_rate);
       if (defaultRate === null) bad('Set a default rate for this client.');
-      const vals = [name, str(b.student, 120, 'Student'), str(b.billing_email, 200, 'Billing email'),
-        str(b.location, 200, 'Location'), defaultRate, str(b.notes, 1000, 'Notes')];
+      const vals = [name, str(b.student, 120, 'Student'), emailParam(b.billing_email, 'Billing email'),
+        emailParam(b.student_email, 'Student email'), str(b.location, 200, 'Location'), defaultRate, str(b.notes, 1000, 'Notes'),
+        b.billing_mode === 'paid' ? 'paid' : 'billable', str(b.summary, 4000, 'Rundown')];
       if (method === 'POST' && !id) {
-        const row = await env.DB.prepare(`INSERT INTO clients (name, student, billing_email, location, default_rate, notes)
-            VALUES (?, ?, ?, ?, ?, ?) RETURNING id`).bind(...vals).first();
+        const row = await env.DB.prepare(`INSERT INTO clients (name, student, billing_email, student_email, location, default_rate, notes, billing_mode, summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`).bind(...vals).first();
         return json({ id: row.id }, 201);
       }
       if (method === 'PUT' && id) {
-        const r = await env.DB.prepare(`UPDATE clients SET name = ?, student = ?, billing_email = ?, location = ?, default_rate = ?, notes = ?,
-            active = ? WHERE id = ?`).bind(...vals, b.active ? 1 : 0, intParam(id)).run();
+        const r = await env.DB.prepare(`UPDATE clients SET name = ?, student = ?, billing_email = ?, student_email = ?, location = ?, default_rate = ?,
+            notes = ?, billing_mode = ?, summary = ?, active = ? WHERE id = ?`).bind(...vals, b.active ? 1 : 0, intParam(id)).run();
         if (!r.meta.changes) throw new HttpError(404, 'Client not found.');
         return json({ ok: true });
       }
@@ -549,15 +667,54 @@ async function adminRoutes(request, env, user, seg, url) {
       const clientId = intParam(id);
       const inv = await env.DB.prepare('SELECT COUNT(*) AS n FROM invoices WHERE client_id = ?').bind(clientId).first();
       if (inv.n) throw new HttpError(409, 'This client has invoices, so they can’t be deleted. Untick Active instead.');
-      const [sess, , del] = await env.DB.batch([
+      const [sess, , , del] = await env.DB.batch([
         env.DB.prepare('DELETE FROM sessions WHERE client_id = ?').bind(clientId),
         env.DB.prepare('DELETE FROM tutor_clients WHERE client_id = ?').bind(clientId),
+        env.DB.prepare('DELETE FROM packages WHERE client_id = ?').bind(clientId),
         env.DB.prepare('DELETE FROM clients WHERE id = ?').bind(clientId),
       ]);
       if (!del.meta.changes) throw new HttpError(404, 'Client not found.');
       return json({ ok: true, sessions_deleted: sess.meta.changes });
     }
   }
+
+  // PUT /api/admin/client-fields/:id { summary?, student_email?, active? } --
+  // the Students directory edits one thing at a time.
+  if (resource === 'client-fields' && id && method === 'PUT') {
+    const b = await body(request);
+    const sets = [], binds = [];
+    if (b.summary !== undefined) { sets.push('summary = ?'); binds.push(str(b.summary, 4000, 'Rundown')); }
+    if (b.student_email !== undefined) { sets.push('student_email = ?'); binds.push(emailParam(b.student_email, 'Student email')); }
+    if (b.active !== undefined) { sets.push('active = ?'); binds.push(b.active ? 1 : 0); }
+    if (b.billing_mode !== undefined) { sets.push('billing_mode = ?'); binds.push(b.billing_mode === 'paid' ? 'paid' : 'billable'); }
+    if (!sets.length) bad('Nothing to change.');
+    const r = await env.DB.prepare(`UPDATE clients SET ${sets.join(', ')} WHERE id = ?`).bind(...binds, intParam(id)).run();
+    if (!r.meta.changes) throw new HttpError(404, 'Client not found.');
+    return json({ ok: true });
+  }
+
+  // Prepaid packages
+  if (resource === 'packages') {
+    if (!id && method === 'POST') {
+      const b = await body(request);
+      const clientId = intParam(b.client_id, 'Pick a client.');
+      const n = Number(b.sessions);
+      if (!Number.isInteger(n) || n < 1 || n > 500) bad('A package is 1 to 500 sessions.');
+      const amount = b.amount === '' || b.amount === null || b.amount === undefined ? null : rateParam(b.amount);
+      const row = await env.DB.prepare(`INSERT INTO packages (client_id, sessions, purchased_on, amount, notes, created_by)
+          VALUES (?, ?, ?, ?, ?, ?) RETURNING id`)
+        .bind(clientId, n, dateParam(b.purchased_on), amount, str(b.notes, 300, 'Notes'), user.email).first();
+      return json({ id: row.id }, 201);
+    }
+    if (id && method === 'DELETE') {
+      const r = await env.DB.prepare('DELETE FROM packages WHERE id = ?').bind(intParam(id)).run();
+      if (!r.meta.changes) throw new HttpError(404, 'Package not found.');
+      return json({ ok: true });
+    }
+  }
+
+  // POST /api/admin/schedule -- book one or many sessions (see scheduleSessions).
+  if (resource === 'schedule' && !id && method === 'POST') return scheduleSessions(env, user, await body(request));
 
   // Tutor <-> client assignment and per-pair rates
   if (resource === 'assignments' && !id && method === 'PUT') {
@@ -582,9 +739,19 @@ async function adminRoutes(request, env, user, seg, url) {
       if (q.get('month')) { where.push('substr(s.date, 1, 7) = ?'); binds.push(monthParam(q.get('month'))); }
       if (q.get('tutor')) { where.push('s.tutor_email = ?'); binds.push(q.get('tutor').toLowerCase()); }
       if (q.get('client')) { where.push('s.client_id = ?'); binds.push(intParam(q.get('client'))); }
-      if (q.get('status') === 'uninvoiced') where.push('s.invoice_id IS NULL');
-      if (q.get('status') === 'invoiced') where.push('s.invoice_id IS NOT NULL');
+      // "uninvoiced" is what an invoice can take: held, BILLABLE, not billed yet.
+      const st = q.get('status');
+      if (st === 'uninvoiced') where.push("s.invoice_id IS NULL AND s.status = 'held' AND s.billing = 'billable'");
+      if (st === 'invoiced') where.push('s.invoice_id IS NOT NULL');
+      if (st === 'held') where.push("s.status = 'held'");
+      if (st === 'scheduled') where.push("s.status = 'scheduled'");
+      if (st === 'unconfirmed') { where.push("s.status = 'scheduled' AND s.date < ?"); binds.push(todayLocal()); }
+      if (st === 'upcoming') { where.push("s.status = 'scheduled' AND s.date >= ?"); binds.push(todayLocal()); }
+      if (st === 'cancelled') where.push("s.status = 'cancelled'");
+      if (q.get('billing') === 'paid' || q.get('billing') === 'billable') { where.push('s.billing = ?'); binds.push(q.get('billing')); }
+      if (q.get('from')) { where.push('s.date >= ?'); binds.push(dateParam(q.get('from'))); }
       const { results } = await env.DB.prepare(`SELECT s.*, u.name AS tutor_name, c.name AS client_name, c.student,
+          c.billing_email, c.student_email,
           COALESCE(s.client_rate, tc.client_rate, c.default_rate) AS bill_rate, i.number AS invoice_number
           FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
           LEFT JOIN tutor_clients tc ON tc.tutor_email = s.tutor_email AND tc.client_id = s.client_id
@@ -604,17 +771,73 @@ async function adminRoutes(request, env, user, seg, url) {
           .bind(rateParam(b.pay_rate), sid).run();
         return json({ ok: true });
       }
+      const before = existing.status === 'scheduled' && existing.cal_uid ? await sessionForInvite(env, sid) : null;
       const s = sessionFields(b);
-      await env.DB.prepare(`UPDATE sessions SET client_id = ?, date = ?, start_time = ?, minutes = ?, service = ?, notes = ?,
-          pay_rate = ?, updated_at = datetime('now') WHERE id = ?`)
-        .bind(s.client_id, s.date, s.start_time, s.minutes, s.service, s.notes, rateParam(b.pay_rate), sid).run();
-      return json({ ok: true });
+      const billing = b.billing === undefined ? existing.billing : b.billing === 'paid' ? 'paid' : 'billable';
+      const tutor = b.tutor_email ? str(b.tutor_email, 200, 'Tutor').toLowerCase() : existing.tutor_email;
+      if (tutor !== existing.tutor_email && !(await env.DB.prepare('SELECT 1 FROM users WHERE email = ? AND active = 1').bind(tutor).first())) bad('Pick an active tutor.');
+      await env.DB.prepare(`UPDATE sessions SET tutor_email = ?, client_id = ?, date = ?, start_time = ?, minutes = ?, service = ?, notes = ?,
+          pay_rate = ?, billing = ?, updated_at = datetime('now') WHERE id = ?`)
+        .bind(tutor, s.client_id, s.date, s.start_time, s.minutes, s.service, s.notes, rateParam(b.pay_rate), billing, sid).run();
+      // A booking that moved (or changed hands) sends everyone an updated invite.
+      let invites = null;
+      const moved = ['tutor_email', 'client_id', 'date', 'start_time', 'minutes']
+        .some(k => String(existing[k]) !== String({ ...s, tutor_email: tutor }[k]));
+      if (before && moved && b.send_invites !== false) {
+        if (tutor !== existing.tutor_email) await sendInvite(env, before, 'cancel', [existing.tutor_email]);
+        invites = await sendInvite(env, await sessionForInvite(env, sid), 'request');
+      }
+      return json({ ok: true, invites });
+    }
+    // POST /api/admin/sessions/:id/status { status: 'held' | 'cancelled' | 'scheduled' }
+    if (id && seg[2] === 'status' && method === 'POST') {
+      const sid = intParam(id);
+      const existing = await env.DB.prepare('SELECT * FROM sessions WHERE id = ?').bind(sid).first();
+      if (!existing) throw new HttpError(404, 'Session not found.');
+      if (existing.invoice_id) throw new HttpError(409, 'This session is on an invoice. Void the invoice first.');
+      const status = (await body(request)).status;
+      if (!['held', 'cancelled', 'scheduled'].includes(status)) bad('Unknown status.');
+      if (status === 'held' && existing.date > todayLocal()) bad('A session can be marked held on or after its day.');
+      if (status === 'scheduled' && !existing.start_time) bad('Give the session a start time before scheduling it.');
+      await env.DB.prepare("UPDATE sessions SET status = ?, updated_at = datetime('now') WHERE id = ?").bind(status, sid).run();
+      // Calling off a booking that hasn't happened yet takes it off everyone's calendar.
+      let invites = null;
+      if (status === 'cancelled' && existing.status === 'scheduled' && existing.cal_uid && existing.date >= todayLocal()) {
+        invites = await sendInvite(env, await sessionForInvite(env, sid), 'cancel');
+      }
+      return json({ ok: true, invites });
+    }
+    // POST /api/admin/sessions/:id/invite -- send (or resend) the calendar invite.
+    if (id && seg[2] === 'invite' && method === 'POST') {
+      const sess = await sessionForInvite(env, intParam(id));
+      if (!sess) throw new HttpError(404, 'Session not found.');
+      if (sess.status !== 'scheduled') bad('Only upcoming scheduled sessions get invites.');
+      return json({ ok: true, invites: await sendInvite(env, sess, 'request') });
     }
     if (id && method === 'DELETE') {
-      const r = await env.DB.prepare('DELETE FROM sessions WHERE id = ? AND invoice_id IS NULL').bind(intParam(id)).run();
+      const sid = intParam(id);
+      const existing = await env.DB.prepare('SELECT * FROM sessions WHERE id = ?').bind(sid).first();
+      if (existing && existing.status === 'scheduled' && existing.cal_uid && existing.date >= todayLocal() && !existing.invoice_id) {
+        await sendInvite(env, await sessionForInvite(env, sid), 'cancel');
+      }
+      const r = await env.DB.prepare('DELETE FROM sessions WHERE id = ? AND invoice_id IS NULL').bind(sid).run();
       if (!r.meta.changes) throw new HttpError(409, 'Void the invoice first, or the session no longer exists.');
       return json({ ok: true });
     }
+  }
+
+  // GET /api/admin/tax?year=2026 -- what each tutor was paid in a year, for 1099-NEC.
+  if (resource === 'tax' && !id && method === 'GET') {
+    const year = String(q.get('year') || '');
+    if (!/^20\d\d$/.test(year)) bad('Pick a year.');
+    const { results } = await env.DB.prepare(`SELECT s.tutor_email, u.name, u.role, COUNT(*) AS sessions, SUM(s.minutes) AS minutes,
+        SUM(CASE WHEN s.pay_rate IS NULL THEN 0 ELSE ROUND(s.pay_rate * s.minutes / 60.0, 2) END) AS pay,
+        SUM(CASE WHEN s.pay_rate IS NULL THEN 1 ELSE 0 END) AS missing
+        FROM sessions s JOIN users u ON u.email = s.tutor_email
+        WHERE s.status = 'held' AND substr(s.date, 1, 4) = ? GROUP BY s.tutor_email ORDER BY u.name, s.tutor_email`).bind(year).all();
+    // The 1099-NEC threshold: $600 through 2025, $2,000 from 2026 (2025's
+    // tax law change; indexed for inflation after 2026 -- check each year).
+    return json({ year, threshold: Number(year) >= 2026 ? 2000 : 600, tutors: results.map(r => ({ ...r, pay: round2(r.pay || 0) })) });
   }
 
   // Invoices
@@ -641,6 +864,8 @@ async function adminRoutes(request, env, user, seg, url) {
       });
       return json(result, 201);
     }
+    // POST /api/admin/invoices/:id/email -- send it to the client, CC the founders.
+    if (id && seg[2] === 'email' && method === 'POST') return emailInvoice(env, id);
     if (id && method === 'PUT') {
       const b = await body(request);
       const inv = await env.DB.prepare('SELECT status FROM invoices WHERE id = ?').bind(id).first();
@@ -689,6 +914,8 @@ async function createInvoice(env, user, b) {
     const s = byId.get(Number(l.session_id));
     if (!s || s.client_id !== clientId) bad('One of the sessions does not belong to this client.');
     if (s.invoice_id) bad(`The ${s.date} session is already on another invoice.`);
+    if (s.status !== 'held') bad(`The ${s.date} session hasn't been confirmed as held yet.`);
+    if (s.billing !== 'billable') bad(`The ${s.date} session is PAID from a package, so it isn't billed.`);
     const rate = rateParam(l.rate);
     if (rate === null) bad(`Set a rate for the ${s.date} session.`);
     // Billed length can differ from the logged length (e.g. rounding up); the
@@ -762,6 +989,7 @@ async function generateAllInvoices(env, user, period, { issued_date, due_text, l
         FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
         LEFT JOIN tutor_clients tc ON tc.tutor_email = s.tutor_email AND tc.client_id = s.client_id
         WHERE s.client_id = ? AND substr(s.date, 1, 7) = ? AND s.invoice_id IS NULL
+          AND s.status = 'held' AND s.billing = 'billable'
         ORDER BY s.date`).bind(client.id, period).all();
     if (!sessions.length) continue;
     const missing = sessions.find(s => s.bill_rate === null);
@@ -782,7 +1010,7 @@ async function generateAllInvoices(env, user, period, { issued_date, due_text, l
 // invoice.html), never persisted, so there's nothing to "generate" here to save.
 async function computeMonthlyPayroll(env, period) {
   const { results: sessions } = await env.DB.prepare(`SELECT s.tutor_email, s.pay_rate, s.minutes, u.name AS tutor_name
-      FROM sessions s JOIN users u ON u.email = s.tutor_email WHERE substr(s.date, 1, 7) = ?`).bind(period).all();
+      FROM sessions s JOIN users u ON u.email = s.tutor_email WHERE substr(s.date, 1, 7) = ? AND s.status = 'held'`).bind(period).all();
   const byTutor = new Map();
   for (const s of sessions) {
     const t = byTutor.get(s.tutor_email) || { name: s.tutor_name || s.tutor_email, pay: 0, missing: 0 };
@@ -790,6 +1018,222 @@ async function computeMonthlyPayroll(env, period) {
     byTutor.set(s.tutor_email, t);
   }
   return [...byTutor.values()];
+}
+
+// ---------- scheduling & calendar invites ----------
+
+// POST /api/admin/schedule { tutor_email, client_id, dates: [YYYY-MM-DD], start_time,
+//   minutes, service, notes, billing: 'billable' | 'paid', send_invites }
+// Books a session on each date. Invites go to the parent (billing email), the
+// student (if we have their email -- not having it never blocks booking) and
+// the tutor, from CALENDAR_ORGANIZER.
+async function scheduleSessions(env, user, b) {
+  const clientId = intParam(b.client_id, 'Pick a client.');
+  const tutor = str(b.tutor_email, 200, 'Tutor').toLowerCase();
+  const client = await env.DB.prepare('SELECT * FROM clients WHERE id = ? AND active = 1').bind(clientId).first();
+  if (!client) bad('Pick an active client.');
+  if (!(await env.DB.prepare('SELECT 1 FROM users WHERE email = ? AND active = 1').bind(tutor).first())) bad('Pick an active tutor.');
+  const start_time = timeParam(b.start_time);
+  if (!start_time) bad('Give the sessions a start time.');
+  const minutes = minutesParam(b.minutes);
+  const service = str(b.service, 60, 'Type') || 'Tutoring session';
+  const notes = str(b.notes, 2000, 'Notes');
+  const billing = b.billing === 'paid' ? 'paid' : b.billing === 'billable' ? 'billable' : client.billing_mode;
+  const dates = [...new Set((Array.isArray(b.dates) ? b.dates : []).map(dateParam))].sort();
+  if (!dates.length) bad('Pick at least one date.');
+  if (dates.length > MAX_SCHEDULE) bad(`Schedule up to ${MAX_SCHEDULE} sessions at a time.`);
+
+  // Booking someone for a client makes them that client's tutor, so they can
+  // see the student and confirm the sessions.
+  await env.DB.prepare('INSERT OR IGNORE INTO tutor_clients (tutor_email, client_id) VALUES (?, ?)').bind(tutor, clientId).run();
+  const payRate = await defaultPayRate(env, tutor, clientId);
+  const today = todayLocal();
+  const ids = [];
+  for (const date of dates) {
+    // A day that's already over is booked as held: it happened.
+    const status = date < today ? 'held' : 'scheduled';
+    const row = await env.DB.prepare(`INSERT INTO sessions (tutor_email, client_id, date, start_time, minutes, service, notes,
+        pay_rate, status, billing, scheduled_by, cal_uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`)
+      .bind(tutor, clientId, date, start_time, minutes, service, notes, payRate, status, billing, user.email,
+        status === 'scheduled' ? crypto.randomUUID() + '@palisadewriters.com' : null).first();
+    ids.push({ id: row.id, date, status });
+  }
+
+  const invites = { sent: 0, failed: 0, errors: [], to: [] };
+  if (b.send_invites !== false) {
+    for (const { id, status } of ids) {
+      if (status !== 'scheduled') continue;
+      const r = await sendInvite(env, await sessionForInvite(env, id), 'request');
+      invites.to = r.to;
+      if (r.ok) invites.sent++; else { invites.failed++; if (!invites.errors.includes(r.error)) invites.errors.push(r.error); }
+      await sleep(550); // stay under Resend's per-second limit
+    }
+  }
+  const bal = await env.DB.prepare(`SELECT
+      (SELECT COALESCE(SUM(sessions), 0) FROM packages WHERE client_id = ?1) -
+      (SELECT COUNT(*) FROM sessions WHERE client_id = ?1 AND billing = 'paid' AND status != 'cancelled') AS left`).bind(clientId).first();
+  return json({ created: ids.length, sessions: ids, invites, package_left: bal.left }, 201);
+}
+
+async function sessionForInvite(env, id) {
+  return env.DB.prepare(`SELECT s.*, u.name AS tutor_name, c.name AS client_name, c.student, c.billing_email, c.student_email,
+      c.location FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id WHERE s.id = ?`).bind(id).first();
+}
+
+// kind 'request' sends (or updates) the invite; 'cancel' takes it off
+// calendars. `only` limits it to some addresses (e.g. a tutor taken off it).
+async function sendInvite(env, sess, kind, only) {
+  if (!sess || !sess.cal_uid || !sess.start_time) return { ok: false, error: 'This session has no invite.', to: [] };
+  const organizer = (env.CALENDAR_ORGANIZER || DEFAULT_ORGANIZER).toLowerCase();
+  const people = [
+    { email: sess.billing_email, name: sess.client_name },
+    { email: sess.student_email, name: sess.student },
+    { email: sess.tutor_email, name: sess.tutor_name },
+  ].filter(p => p.email && p.email.toLowerCase() !== organizer && (!only || only.includes(p.email.toLowerCase())));
+  const seen = new Set();
+  const attendees = people.filter(p => !seen.has(p.email.toLowerCase()) && seen.add(p.email.toLowerCase()));
+  if (!attendees.length) return { ok: false, error: 'Nobody to invite: add a billing or student email.', to: [] };
+
+  const seq = (sess.cal_seq || 0) + (sess.invited_at ? 1 : 0);
+  const method = kind === 'cancel' ? 'CANCEL' : 'REQUEST';
+  const title = `Palisade Writers: ${sess.student || sess.client_name} with ${firstName(sess.tutor_name) || sess.tutor_email}`;
+  const ics = buildIcs({ method, uid: sess.cal_uid, seq, title, date: sess.date, time: sess.start_time, minutes: sess.minutes,
+    location: sess.location, description: [sess.service, sess.notes].filter(Boolean).join('\n\n'),
+    organizer, attendees, cancelled: kind === 'cancel' });
+  const when = `${longDate(sess.date)} at ${clock(sess.start_time)} (${duration(sess.minutes)})`;
+  const html = kind === 'cancel'
+    ? `<p>This Palisade Writers session has been cancelled:</p><p><strong>${esc(title)}</strong><br>${esc(when)}</p>`
+    : `<p>You’re invited to a Palisade Writers session:</p><p><strong>${esc(title)}</strong><br>${esc(when)}${sess.location ? '<br>' + esc(sess.location) : ''}</p>
+       <p>Use the invitation above (or the attached file) to add it to your calendar.</p>`;
+  const r = await sendEmail(env, {
+    from: `Palisade Writers <${organizer}>`,
+    to: attendees.map(a => a.email),
+    reply_to: organizer,
+    subject: (kind === 'cancel' ? 'Cancelled: ' : sess.invited_at ? 'Updated: ' : 'Invitation: ') + title + ' — ' + shortDate(sess.date),
+    html,
+    attachments: [{ filename: kind === 'cancel' ? 'cancel.ics' : 'invite.ics', content: b64(ics),
+      content_type: `text/calendar; charset=utf-8; method=${method}` }],
+  });
+  if (r.ok) {
+    await env.DB.prepare("UPDATE sessions SET cal_seq = ?, invited_at = datetime('now') WHERE id = ?").bind(seq, sess.id).run();
+  }
+  return { ...r, to: attendees.map(a => a.email) };
+}
+
+function buildIcs({ method, uid, seq, title, date, time, minutes, location, description, organizer, attendees, cancelled }) {
+  const end = addMinutes(date, time, minutes);
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const lines = [
+    'BEGIN:VCALENDAR', 'PRODID:-//Palisade Writers//Portal//EN', 'VERSION:2.0', 'CALSCALE:GREGORIAN', `METHOD:${method}`,
+    'BEGIN:VTIMEZONE', `TZID:${TZ}`,
+    'BEGIN:DAYLIGHT', 'TZOFFSETFROM:-0500', 'TZOFFSETTO:-0400', 'TZNAME:EDT', 'DTSTART:19700308T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU', 'END:DAYLIGHT',
+    'BEGIN:STANDARD', 'TZOFFSETFROM:-0400', 'TZOFFSETTO:-0500', 'TZNAME:EST', 'DTSTART:19701101T020000', 'RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU', 'END:STANDARD',
+    'END:VTIMEZONE',
+    'BEGIN:VEVENT', `UID:${uid}`, `SEQUENCE:${seq}`, `DTSTAMP:${stamp}`,
+    `DTSTART;TZID=${TZ}:${icsLocal(date, time)}`, `DTEND;TZID=${TZ}:${icsLocal(end.date, end.time)}`,
+    `SUMMARY:${icsText(title)}`,
+    ...(location ? [`LOCATION:${icsText(location)}`] : []),
+    ...(description ? [`DESCRIPTION:${icsText(description)}`] : []),
+    `ORGANIZER;CN=Palisade Writers:mailto:${organizer}`,
+    ...attendees.map(a => `ATTENDEE;CN=${icsParam(a.name || a.email)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${a.email}`),
+    `STATUS:${cancelled ? 'CANCELLED' : 'CONFIRMED'}`,
+    'END:VEVENT', 'END:VCALENDAR',
+  ];
+  return lines.map(icsFold).join('\r\n') + '\r\n';
+}
+const icsText = s => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+const icsParam = s => '"' + String(s || '').replace(/["\r\n]/g, '') + '"';
+const icsLocal = (date, time) => date.replace(/-/g, '') + 'T' + time.replace(':', '') + '00';
+// Lines longer than 75 bytes continue on the next line after a space (RFC 5545).
+function icsFold(line) {
+  const bytes = new TextEncoder().encode(line);
+  if (bytes.length <= 75) return line;
+  const out = [];
+  let cur = '', len = 0;
+  for (const ch of line) {
+    const n = new TextEncoder().encode(ch).length;
+    if (len + n > (out.length ? 74 : 75)) { out.push(cur); cur = ''; len = 0; }
+    cur += ch; len += n;
+  }
+  out.push(cur);
+  return out.join('\r\n ');
+}
+function addMinutes(date, time, minutes) {
+  const [y, m, d] = date.split('-').map(Number), [hh, mm] = time.split(':').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d, hh, mm) + minutes * 60000).toISOString();
+  return { date: t.slice(0, 10), time: t.slice(11, 16) };
+}
+function b64(str) {
+  let s = '';
+  for (const byte of new TextEncoder().encode(str)) s += String.fromCharCode(byte);
+  return btoa(s);
+}
+// Today's date in New York, where sessions happen.
+const todayLocal = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const longDate = iso => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+const shortDate = iso => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+function clock(t) { const [h, m] = t.split(':').map(Number); return ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + (h < 12 ? ' am' : ' pm'); }
+function duration(minutes) { const h = Math.floor(minutes / 60), m = minutes % 60; return (h ? h + 'h' : '') + (h && m ? ' ' : '') + (m ? m + 'm' : '') || '0m'; }
+const money = n => (n < 0 ? '−$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// ---------- invoice email ----------
+
+// Sends the invoice to the client's billing email, CC every founder. Never to
+// a tutor. A draft becomes "sent".
+async function emailInvoice(env, id) {
+  const inv = await env.DB.prepare(`SELECT i.*, c.billing_email FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id = ?`).bind(id).first();
+  if (!inv) throw new HttpError(404, 'Invoice not found.');
+  if (inv.status === 'void') bad('This invoice was voided.');
+  if (!inv.billing_email) bad('This client has no billing email. Add one under Team & clients.');
+  const { results: lines } = await env.DB.prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY sort').bind(id).all();
+  const tutors = new Set((await env.DB.prepare("SELECT email FROM users WHERE role = 'tutor'").all()).results.map(r => r.email));
+  const cc = (await founderEmails(env)).filter(e => e !== inv.billing_email.toLowerCase() && !tutors.has(e));
+  const r = await sendEmail(env, {
+    from: env.EMAIL_FROM || 'Palisade Writers <billing@palisadewriters.com>',
+    to: [inv.billing_email],
+    cc,
+    reply_to: cc[0] || undefined,
+    subject: `Invoice ${inv.number} from ${inv.from_line} — ${monthName(inv.period)}`,
+    html: invoiceEmailHtml(inv, lines),
+  });
+  if (!r.ok) throw new HttpError(502, r.error);
+  const sentTo = [inv.billing_email, ...cc].join(', ');
+  await env.DB.prepare(`UPDATE invoices SET emailed_at = datetime('now'), emailed_to = ?,
+      status = CASE WHEN status = 'draft' THEN 'sent' ELSE status END WHERE id = ?`).bind(sentTo, id).run();
+  return json({ ok: true, to: inv.billing_email, cc });
+}
+const monthName = ym => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' }); };
+
+function invoiceEmailHtml(inv, lines) {
+  const td = 'padding:6px 8px;border-bottom:1px dashed #d8d2c4;font-size:13px;';
+  const rows = lines.map(l => `<tr>
+    <td style="${td}white-space:nowrap">${l.date ? esc(shortDate(l.date)) : ''}</td>
+    <td style="${td}">${esc(l.description)}</td>
+    <td style="${td}text-align:right">${l.minutes ? esc(duration(l.minutes)) : ''}</td>
+    <td style="${td}text-align:right">${l.rate !== null ? money(l.rate) : ''}</td>
+    <td style="${td}text-align:right">${money(l.amount)}</td></tr>`).join('');
+  const row = (k, v) => `<tr><td style="padding:3px 0;color:#6b6457;font-size:13px">${k}</td><td style="padding:3px 0;text-align:right;font-size:13px">${v}</td></tr>`;
+  return `<div style="font-family:Georgia,serif;color:#1f1d1a;max-width:640px">
+    <h2 style="margin:0 0 2px">${esc(inv.from_line)}</h2>
+    <p style="margin:0 0 18px;font:600 12px Helvetica,Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#6b6457">Invoice ${esc(inv.number)}</p>
+    <table style="width:100%;border-collapse:collapse;font-family:Helvetica,Arial,sans-serif">
+      ${row('Bill to', esc(inv.bill_to) + (inv.student ? ' (for ' + esc(inv.student) + ')' : ''))}
+      ${row('Date', esc(longDate(inv.issued_date)))}
+      ${row('Services for', esc(monthName(inv.period)))}
+      ${row('Payment due', esc(inv.due_text) || '—')}
+      ${row('Payment methods', 'Venmo or Zelle to @palisadewriters')}
+    </table>
+    <table style="width:100%;border-collapse:collapse;margin-top:14px;font-family:Helvetica,Arial,sans-serif">
+      <tr><th align="left" style="${td}">Date</th><th align="left" style="${td}">Description</th><th align="right" style="${td}">Length</th><th align="right" style="${td}">Rate</th><th align="right" style="${td}">Amount</th></tr>
+      ${rows}
+    </table>
+    <p style="font:700 15px Helvetica,Arial,sans-serif;text-align:right;border-top:1.5px solid #1f1d1a;padding-top:8px">Total due: ${money(inv.total)}</p>
+    ${inv.notes ? `<p style="font-size:14px">${esc(inv.notes)}</p>` : ''}
+    <p style="font:italic 12px Helvetica,Arial,sans-serif;color:#6b6457;line-height:1.55">Payment can be made via Venmo or Zelle to @palisadewriters. Credit card payments incur a
+      2% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or bank/wire transfer
+      fees incurred in sending payment. The amount received by ${esc(inv.from_line)} must equal the Total Due above, net of any such fees.</p>
+    <p style="font:12px Helvetica,Arial,sans-serif;color:#6b6457">Questions about this invoice? Just reply to this email.</p>
+  </div>`;
 }
 
 // ---------- validation helpers ----------
@@ -804,6 +1248,11 @@ function str(v, max, field) {
   v = v.trim();
   if (v.length > max) bad(`${field} is too long.`);
   return v;
+}
+function emailParam(v, field) {
+  const e = str(v, 200, field).toLowerCase();
+  if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) bad(`${field} doesn’t look like an email address.`);
+  return e;
 }
 function intParam(v, msg = 'Invalid id.') {
   const n = Number(v);
