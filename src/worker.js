@@ -60,7 +60,7 @@ async function founderEmails(env) {
 // Scheduled sessions whose day has passed but the tutor hasn't confirmed.
 async function unconfirmedSessions(env) {
   const { results } = await env.DB.prepare(`SELECT s.id, s.date, s.start_time, u.name AS tutor_name, s.tutor_email,
-      c.name AS client_name, c.student FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
+      c.name AS client_name, c.student, c.is_test FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
       WHERE s.status = 'scheduled' AND s.date < ? ORDER BY s.date`).bind(todayLocal()).all();
   return results;
 }
@@ -93,6 +93,7 @@ function previousMonth(d) {
 }
 
 async function sendMonthlyEmail(env, founders, period, invoices, payroll, unconfirmed) {
+  const real = invoices.created.filter(i => !i.test), tests = invoices.created.filter(i => i.test);
   const table = (items, label) => items.length
     ? `<table cellpadding="4" cellspacing="0"><tr><th align="left">${label}</th><th align="right">Total</th></tr>${
         items.map(i => `<tr><td>${esc(i.name)} (${esc(i.number)})</td><td align="right">$${i.total.toFixed(2)}</td></tr>`).join('')
@@ -109,14 +110,15 @@ async function sendMonthlyEmail(env, founders, period, invoices, payroll, unconf
     <p>Generated automatically on the 1st. Sign in at
       <a href="https://palisadewriters.com/invoice">palisadewriters.com/invoice</a> to review, print, and send invoices,
       and to generate pay stubs from the Payroll tab.</p>
-    <h3>Invoices to send (${invoices.created.length})</h3>
-    ${table(invoices.created, 'Client')}
+    <h3>Invoices to send (${real.length})</h3>
+    ${table(real, 'Client')}
     ${skippedList(invoices.skipped)}
+    ${tests.length ? `<h3>TEST invoices (not real, not counted)</h3>${table(tests, 'Client')}` : ''}
     <h3>Payroll owed</h3>
     ${payrollTable}
     ${unconfirmed.length ? `<h3>Waiting for the tutor to confirm (${unconfirmed.length})</h3>
     <p>Scheduled sessions whose day has passed. They aren't paid or invoiced until they're confirmed.</p>
-    <ul>${unconfirmed.map(u => `<li>${esc(u.date)} ${esc(u.start_time)} — ${esc(u.client_name)}${u.student ? ' (' + esc(u.student) + ')' : ''} with ${esc(u.tutor_name || u.tutor_email)}</li>`).join('')}</ul>` : ''}
+    <ul>${unconfirmed.map(u => `<li>${u.is_test ? 'TEST · ' : ''}${esc(u.date)} ${esc(u.start_time)} — ${esc(u.client_name)}${u.student ? ' (' + esc(u.student) + ')' : ''} with ${esc(u.tutor_name || u.tutor_email)}</li>`).join('')}</ul>` : ''}
   `;
 
   await sendEmail(env, {
@@ -635,7 +637,9 @@ async function adminRoutes(request, env, user, seg, url) {
         env.DB.prepare('SELECT id, client_id, title, url, created_at FROM client_links ORDER BY created_at, id'),
         env.DB.prepare('SELECT id, client_id, title, created_at FROM contracts ORDER BY created_at DESC'),
       ]);
+      const founders = clients.some(c => c.is_test) ? await founderEmails(env) : [];
       for (const c of clients) {
+        if (c.is_test) c.test_emails = founders;
         c.tutors = links.filter(l => l.client_id === c.id);
         c.packages = packages.filter(p => p.client_id === c.id);
         c.docs = docs.filter(d => d.client_id === c.id);
@@ -805,7 +809,7 @@ async function adminRoutes(request, env, user, seg, url) {
       if (q.get('billing') === 'paid' || q.get('billing') === 'billable') { where.push('s.billing = ?'); binds.push(q.get('billing')); }
       if (q.get('from')) { where.push('s.date >= ?'); binds.push(dateParam(q.get('from'))); }
       const { results } = await env.DB.prepare(`SELECT s.*, u.name AS tutor_name, c.name AS client_name, c.student,
-          c.billing_email, c.student_email,
+          c.billing_email, c.student_email, c.is_test AS test,
           COALESCE(s.client_rate, tc.client_rate, c.default_rate) AS bill_rate, i.number AS invoice_number
           FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
           LEFT JOIN tutor_clients tc ON tc.tutor_email = s.tutor_email AND tc.client_id = s.client_id
@@ -887,8 +891,8 @@ async function adminRoutes(request, env, user, seg, url) {
     const { results } = await env.DB.prepare(`SELECT s.tutor_email, u.name, u.role, COUNT(*) AS sessions, SUM(s.minutes) AS minutes,
         SUM(CASE WHEN s.pay_rate IS NULL THEN 0 ELSE ROUND(s.pay_rate * s.minutes / 60.0, 2) END) AS pay,
         SUM(CASE WHEN s.pay_rate IS NULL THEN 1 ELSE 0 END) AS missing
-        FROM sessions s JOIN users u ON u.email = s.tutor_email
-        WHERE s.status = 'held' AND substr(s.date, 1, 4) = ? GROUP BY s.tutor_email ORDER BY u.name, s.tutor_email`).bind(year).all();
+        FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
+        WHERE s.status = 'held' AND c.is_test = 0 AND substr(s.date, 1, 4) = ? GROUP BY s.tutor_email ORDER BY u.name, s.tutor_email`).bind(year).all();
     // The 1099-NEC threshold: $600 through 2025, $2,000 from 2026 (2025's
     // tax law change; indexed for inflation after 2026 -- check each year).
     return json({ year, threshold: Number(year) >= 2026 ? 2000 : 600, tutors: results.map(r => ({ ...r, pay: round2(r.pay || 0) })) });
@@ -898,7 +902,7 @@ async function adminRoutes(request, env, user, seg, url) {
   if (resource === 'invoices') {
     if (!id && method === 'GET') {
       const month = q.get('month') ? monthParam(q.get('month')) : null;
-      const { results } = await env.DB.prepare(`SELECT i.*, c.name AS client_name FROM invoices i JOIN clients c ON c.id = i.client_id
+      const { results } = await env.DB.prepare(`SELECT i.*, c.name AS client_name, c.is_test AS test FROM invoices i JOIN clients c ON c.id = i.client_id
           ${month ? 'WHERE i.period = ?' : ''} ORDER BY i.created_at DESC`).bind(...(month ? [month] : [])).all();
       return json(results);
     }
@@ -920,6 +924,17 @@ async function adminRoutes(request, env, user, seg, url) {
     }
     // POST /api/admin/invoices/:id/email -- send it to the client, CC the founders.
     if (id && seg[2] === 'email' && method === 'POST') return emailInvoice(env, id);
+    // DELETE removes the invoice and its lines outright (any status), and frees
+    // its sessions to be billed again. Its number is still never reused.
+    if (id && method === 'DELETE') {
+      const [, , del] = await env.DB.batch([
+        env.DB.prepare('UPDATE sessions SET invoice_id = NULL, client_rate = NULL WHERE invoice_id = ?').bind(id),
+        env.DB.prepare('DELETE FROM invoice_lines WHERE invoice_id = ?').bind(id),
+        env.DB.prepare('DELETE FROM invoices WHERE id = ?').bind(id),
+      ]);
+      if (!del.meta.changes) throw new HttpError(404, 'Invoice not found.');
+      return json({ ok: true });
+    }
     if (id && method === 'PUT') {
       const b = await body(request);
       const inv = await env.DB.prepare('SELECT status FROM invoices WHERE id = ?').bind(id).first();
@@ -1005,18 +1020,32 @@ async function createInvoice(env, user, b) {
   return json(saved, 201);
 }
 
-async function nextNumber(env, table, prefix) {
-  const { n } = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE number LIKE ?`).bind(prefix + '%').first();
-  return prefix + String(n + 1).padStart(2, '0');
+// The next number after the highest one ever issued under `prefix` -- the
+// highest still saved, or the last one recorded in `config` (which remembers
+// numbers of invoices since deleted). Returns the number and the statement
+// that records it, to run in the same batch as the insert.
+async function nextNumber(env, prefix) {
+  const key = 'last_invoice_number:' + prefix;
+  const [{ results: [saved] }, { results: [seen] }] = await env.DB.batch([
+    env.DB.prepare('SELECT MAX(CAST(substr(number, ?) AS INTEGER)) AS n FROM invoices WHERE number LIKE ?').bind(prefix.length + 1, prefix + '%'),
+    env.DB.prepare('SELECT CAST(value AS INTEGER) AS n FROM config WHERE key = ?').bind(key),
+  ]);
+  const n = Math.max(saved?.n || 0, seen?.n || 0) + 1;
+  return {
+    number: prefix + String(n).padStart(2, '0'),
+    record: env.DB.prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value').bind(key, String(n)),
+  };
 }
 
 // Shared by the manual builder and "Generate all invoices". One batch = one
 // transaction: the invoice, its lines and the session links land together or not at all.
 async function saveInvoice(env, user, client, period, issued, dueText, llc, notes, lines) {
   const total = round2(lines.reduce((sum, l) => sum + l.amount, 0));
-  const number = await nextNumber(env, 'invoices', 'PW-' + period.replace('-', '') + '-');
+  // TEST client invoices get their own TEST-… series, so they never take a real number.
+  const { number, record } = await nextNumber(env, (client.is_test ? 'TEST-' : 'PW-') + period.replace('-', '') + '-');
   const invoiceId = crypto.randomUUID();
   const stmts = [
+    record,
     env.DB.prepare(`INSERT INTO invoices (id, number, client_id, period, issued_date, due_text, bill_to, student, from_line, notes, total, created_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .bind(invoiceId, number, client.id, period, issued, dueText, client.name, client.student,
@@ -1054,7 +1083,7 @@ async function generateAllInvoices(env, user, period, { issued_date, due_text, l
       amount: round2(s.bill_rate * s.minutes / 60),
     }));
     const saved = await saveInvoice(env, user, client, period, issued_date, due_text, llc, '', lines);
-    created.push({ client_id: client.id, name: client.name, number: saved.number, total: saved.total });
+    created.push({ client_id: client.id, name: client.name, number: saved.number, total: saved.total, test: !!client.is_test });
   }
   return { created, skipped };
 }
@@ -1064,7 +1093,8 @@ async function generateAllInvoices(env, user, period, { issued_date, due_text, l
 // invoice.html), never persisted, so there's nothing to "generate" here to save.
 async function computeMonthlyPayroll(env, period) {
   const { results: sessions } = await env.DB.prepare(`SELECT s.tutor_email, s.pay_rate, s.minutes, u.name AS tutor_name
-      FROM sessions s JOIN users u ON u.email = s.tutor_email WHERE substr(s.date, 1, 7) = ? AND s.status = 'held'`).bind(period).all();
+      FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id
+      WHERE substr(s.date, 1, 7) = ? AND s.status = 'held' AND c.is_test = 0`).bind(period).all();
   const byTutor = new Map();
   for (const s of sessions) {
     const t = byTutor.get(s.tutor_email) || { name: s.tutor_name || s.tutor_email, pay: 0, missing: 0 };
@@ -1131,7 +1161,7 @@ async function scheduleSessions(env, user, b) {
 
 async function sessionForInvite(env, id) {
   return env.DB.prepare(`SELECT s.*, u.name AS tutor_name, c.name AS client_name, c.student, c.billing_email, c.student_email,
-      c.location FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id WHERE s.id = ?`).bind(id).first();
+      c.location, c.is_test FROM sessions s JOIN users u ON u.email = s.tutor_email JOIN clients c ON c.id = s.client_id WHERE s.id = ?`).bind(id).first();
 }
 
 // kind 'request' sends (or updates) the invite; 'cancel' takes it off
@@ -1139,9 +1169,12 @@ async function sessionForInvite(env, id) {
 async function sendInvite(env, sess, kind, only) {
   if (!sess || !sess.cal_uid || !sess.start_time) return { ok: false, error: 'This session has no invite.', to: [] };
   const organizer = (env.CALENDAR_ORGANIZER || DEFAULT_ORGANIZER).toLowerCase();
+  // The TEST client's parents and students are all the founders.
+  const family = sess.is_test
+    ? (await founderEmails(env)).map(email => ({ email, name: email }))
+    : [{ email: sess.billing_email, name: sess.client_name }, { email: sess.student_email, name: sess.student }];
   const people = [
-    { email: sess.billing_email, name: sess.client_name },
-    { email: sess.student_email, name: sess.student },
+    ...family,
     { email: sess.tutor_email, name: sess.tutor_name },
   ].filter(p => p.email && p.email.toLowerCase() !== organizer && (!only || only.includes(p.email.toLowerCase())));
   const seen = new Set();
@@ -1235,19 +1268,22 @@ const money = n => (n < 0 ? '−$' : '$') + Math.abs(n).toLocaleString('en-US', 
 // Sends the invoice to the client's billing email, CC every founder. Never to
 // a tutor. A draft becomes "sent".
 async function emailInvoice(env, id) {
-  const inv = await env.DB.prepare(`SELECT i.*, c.billing_email FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id = ?`).bind(id).first();
+  const inv = await env.DB.prepare(`SELECT i.*, c.billing_email, c.is_test FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id = ?`).bind(id).first();
   if (!inv) throw new HttpError(404, 'Invoice not found.');
   if (inv.status === 'void') bad('This invoice was voided.');
+  // The TEST client's parents are the founders.
+  if (inv.is_test) inv.billing_email = (await founderEmails(env)).join(', ');
   if (!inv.billing_email) bad('This client has no billing email. Add one under Team & clients.');
   const { results: lines } = await env.DB.prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY sort').bind(id).all();
   const tutors = new Set((await env.DB.prepare("SELECT email FROM users WHERE role = 'tutor'").all()).results.map(r => r.email));
-  const cc = (await founderEmails(env)).filter(e => e !== inv.billing_email.toLowerCase() && !tutors.has(e));
+  const to = inv.billing_email.split(', ');
+  const cc = (await founderEmails(env)).filter(e => !to.includes(e) && !tutors.has(e));
   const r = await sendEmail(env, {
     from: env.EMAIL_FROM || 'Palisade Writers <billing@palisadewriters.com>',
-    to: [inv.billing_email],
+    to,
     cc,
     reply_to: cc[0] || undefined,
-    subject: `Invoice ${inv.number} from ${inv.from_line} — ${monthName(inv.period)}`,
+    subject: (inv.is_test ? '[TEST] ' : '') + `Invoice ${inv.number} from ${inv.from_line} — ${monthName(inv.period)}`,
     html: invoiceEmailHtml(inv, lines),
   });
   if (!r.ok) throw new HttpError(502, r.error);

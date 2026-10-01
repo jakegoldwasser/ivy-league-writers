@@ -41,6 +41,8 @@ Ground rules:
 `SELECT * FROM packages;`, and the last 60 days of
 `SELECT * FROM sessions WHERE date >= date('now','-60 days');`.
 Clients are parents/families; `student` is the student's name.
+Skip the TEST client (`is_test = 1`) everywhere below: it's for testing, so never
+log sessions, add packages or docs, edit its rundown or change its active flag.
 `billing_mode` is `paid` (prepaid package) or `billable`.
 
 ### 2. Sessions that happened (Google Calendar is accurate)

@@ -36,6 +36,33 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
 - Every client must have a `default_rate` (enforced server-side and via `required`
   on the form) — there is no such thing as a client without a billing rate.
 
+### TEST client
+
+- There is one **TEST client** ("TEST client" / "TEST student", `clients.is_test = 1`,
+  migration `0008_test_client.sql`) for trying out scheduling, calendar invites and
+  invoices end to end. **Every founder is both its parent and its student**: its
+  calendar invites and invoice emails go to all founders (`founderEmails()`), never to
+  anyone else, and every founder is assigned as its tutor.
+- **It must never add to any real totals or accounting docs.** Its sessions are left
+  out of the monthly payroll summary (`computeMonthlyPayroll`), the 1099-NEC tax report
+  (`/api/admin/tax`), pay stubs, the Sessions & payroll stats and the CSV export (the
+  page only counts them when the Client filter is set to the TEST client). Its invoices
+  are numbered in their own `TEST-YYYYMM-NN` series, so they never use up a real
+  `PW-` number, and the monthly billing email lists them apart, under "TEST invoices
+  (not real, not counted)". Every new total, report or export must leave it out too.
+  It's marked with a TEST pill everywhere it shows.
+- The weekly update (`ops/weekly-update.md`) leaves it alone.
+
+### Voiding vs deleting invoices
+
+- **Void** keeps the invoice on record, marked void, and frees its sessions to be
+  billed again. **Delete** removes the invoice and its lines outright (any status) and
+  also frees its sessions. Either way **an invoice number is never reused**:
+  `nextNumber()` takes the highest number ever issued for that month, from the
+  invoices still saved and the high-water mark it records in `config`
+  (`last_invoice_number:<prefix>`). Once a client's invoices are all deleted, the
+  client itself can be deleted.
+
 ### Pay stubs & bulk generation
 
 - Pay stubs are **stateless** — there is no `paystubs` table (migration

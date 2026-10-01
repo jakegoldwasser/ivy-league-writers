@@ -434,6 +434,11 @@
     if(editingClient && editingClient.id === clientId){ editingClient = clients.find(x => x.id === clientId) || null; renderClientEditor(); }
   }
 
+  // The TEST client: every founder is its parent and student, and it never
+  // counts toward real totals (pay, billing, pay stubs, CSV) unless it's the
+  // client you've filtered to.
+  const TEST_PILL = '<span class="pill warn" title="For testing: never counts toward real totals">TEST</span>';
+  const testWho = c => 'All founders' + (c.test_emails && c.test_emails.length ? ': ' + c.test_emails.map(esc).join(', ') : '');
   const pkgLeft = c => !c.package_sessions ? 'no package' : c.package_left < 0
     ? `${-c.package_left} over (${c.package_sessions} bought)` : `${c.package_left} of ${c.package_sessions} left`;
   const storage = {
@@ -498,9 +503,11 @@
     cancelled: '<span class="pill">Cancelled</span>',
   };
 
+  const counted = () => rows.filter(s => !s.test || $('fClient').value === String(s.client_id));
   function renderSessions(){
-    const sum = (f) => round2(rows.reduce((a, s) => a + (f(s) || 0), 0));
-    const held = rows.filter(s => s.status === 'held');
+    const real = counted();
+    const sum = (f) => round2(real.reduce((a, s) => a + (f(s) || 0), 0));
+    const held = real.filter(s => s.status === 'held');
     const mins = held.reduce((a, s) => a + s.minutes, 0);
     const pay = sum(payOf), bill = sum(billOf);
     $('sCount').textContent = held.length;
@@ -531,7 +538,7 @@
       <tbody>${rows.map(s => `<tr>
         <td style="white-space:nowrap">${esc(fmtDate(s.date))}${s.start_time ? '<br><span class="muted small">' + esc(fmtTime(s.start_time)) + '</span>' : ''}</td>
         <td>${esc(s.tutor_name || s.tutor_email)}</td>
-        <td>${esc(s.client_name)}${s.student ? '<br><span class="muted small">' + esc(s.student) + '</span>' : ''}</td>
+        <td>${esc(s.client_name)}${s.test ? ' ' + TEST_PILL : ''}${s.student ? '<br><span class="muted small">' + esc(s.student) + '</span>' : ''}</td>
         <td class="num">${esc(duration(s.minutes))}</td>
         <td>${esc(s.service)}${s.notes ? '<div class="notes">' + esc(s.notes) + '</div>' : ''}</td>
         <td class="num"><input type="number" class="rate compact" min="0" step="1" value="${s.pay_rate ?? ''}" data-payrate="${s.id}" aria-label="Pay rate"></td>
@@ -611,7 +618,7 @@
     const cell = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     const head = ['Date', 'Start', 'Tutor', 'Tutor email', 'Client', 'Student', 'Minutes', 'Hours', 'Type', 'Notes',
       'Pay rate', 'Pay', 'Bill rate', 'Billing', 'Status', 'PAID/BILLABLE', 'Invoice'];
-    const lines = [head, ...rows.map(s => [s.date, s.start_time, s.tutor_name, s.tutor_email, s.client_name, s.student,
+    const lines = [head, ...counted().map(s => [s.date, s.start_time, s.tutor_name, s.tutor_email, s.client_name, s.student,
       s.minutes, round2(s.minutes / 60), s.service, s.notes, s.pay_rate, payOf(s), s.bill_rate, billOf(s), statusOf(s),
       s.billing.toUpperCase(), s.invoice_number || ''])];
     const blob = new Blob([lines.map(r => r.map(cell).join(',')).join('\n')], { type: 'text/csv' });
@@ -627,7 +634,7 @@
   // already loaded for Payroll above) and prints a doc per tutor. Nothing is
   // saved or locked — a session stays editable within the usual 31-day window.
   $('genPaystubsBtn').addEventListener('click', () => {
-    const eligible = rows.filter(s => s.status === 'held' && s.pay_rate !== null);
+    const eligible = counted().filter(s => s.status === 'held' && s.pay_rate !== null);
     if(!eligible.length){ toast('No sessions with a pay rate to generate from.', true); return; }
     const byTutor = new Map();
     for(const s of eligible){
@@ -756,7 +763,8 @@
     if(!$('scInvite').checked || !c){ $('scWho').innerHTML = ''; return; }
     const line = (who, email) => email ? `${who}: ${esc(email)}` : `<span class="missing">${who}: no email on file — they won’t get an invite</span>`;
     $('scWho').innerHTML = 'Invites from ' + esc(ctx.config.calendarOrganizer || 'jake@palisadewriters.com') + ' to:<br>' +
-      [line('Parent', c.billing_email), line('Student', c.student_email), tutor ? line('Tutor', tutor.email) : ''].filter(Boolean).join('<br>');
+      (c.is_test ? [`Parents and students (TEST): ${testWho(c)}`, tutor ? line('Tutor', tutor.email) : '']
+        : [line('Parent', c.billing_email), line('Student', c.student_email), tutor ? line('Tutor', tutor.email) : '']).filter(Boolean).join('<br>');
   }
   $('schedForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -790,7 +798,7 @@
       <h3>${esc(fmtDate(d, { weekday: 'long', month: 'short', day: 'numeric' }))}</h3>
       ${list.map(s => `<div class="row" style="justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--border);">
         <div class="small"><strong>${esc(fmtTime(s.start_time))}</strong> · ${esc(s.student || s.client_name)} with ${esc(firstName(s.tutor_name || s.tutor_email))}
-          · ${esc(duration(s.minutes))} ${billBadge(s.billing)}
+          · ${esc(duration(s.minutes))} ${billBadge(s.billing)}${s.test ? ' ' + TEST_PILL : ''}
           ${s.invited_at ? '' : '<span class="pill warn" title="No invite has gone out for this one">no invite</span>'}</div>
         <div class="actions-cell"><button class="btn btn-sm" data-invite="${s.id}">${s.invited_at ? 'Resend' : 'Send'} invite</button>
           <button class="btn btn-sm btn-danger" data-setstatus="cancelled" data-id="${s.id}">Cancel</button></div>
@@ -805,20 +813,20 @@
   function renderDirectory(){
     if(!$('dirList')) return;
     const q = $('dirSearch').value.trim().toLowerCase(), show = $('dirShow').value;
-    const list = clients.filter(c => (show === 'all' || (show === 'active' ? c.active : show === 'inactive' ? !c.active : !c.student_email))
+    const list = clients.filter(c => (show === 'all' || (show === 'active' ? c.active : show === 'inactive' ? !c.active : !c.student_email && !c.is_test))
       && (!q || [c.name, c.student, c.billing_email, c.student_email, c.location, c.summary, c.notes].join(' ').toLowerCase().includes(q)));
     $('dirList').innerHTML = list.length ? list.map(c => `<div class="scard ${c.active ? '' : 'inactive'}" data-client="${c.id}">
       <h3>${esc(c.student || c.name)} ${billBadge(c.billing_mode, c.billing_mode === 'paid' ? pkgLeft(c) : '')}
-        ${c.active ? '' : '<span class="pill">Not active</span>'}</h3>
+        ${c.is_test ? TEST_PILL : ''}${c.active ? '' : '<span class="pill">Not active</span>'}</h3>
       <div class="facts">
-        ${c.student ? `Parent: <b>${esc(c.name)}</b>${c.billing_email ? ' · ' + esc(c.billing_email) : ''}<br>` : ''}
-        Student email: ${c.student_email ? `<b>${esc(c.student_email)}</b>` : '<span class="error">none yet</span>'}<br>
+        ${c.is_test ? `Parents and students: <b>${testWho(c)}</b><br>` : `${c.student ? `Parent: <b>${esc(c.name)}</b>${c.billing_email ? ' · ' + esc(c.billing_email) : ''}<br>` : ''}
+        Student email: ${c.student_email ? `<b>${esc(c.student_email)}</b>` : '<span class="error">none yet</span>'}<br>`}
         ${c.location ? 'Where: ' + esc(c.location) + '<br>' : ''}
         Tutor${c.tutors.length === 1 ? '' : 's'}: ${c.tutors.length ? c.tutors.map(t => esc(tutorName(t.tutor_email))).join(', ') : '<span class="muted">none</span>'}<br>
         ${c.held_count} session${c.held_count === 1 ? '' : 's'} held${c.last_session ? ', last ' + esc(fmtDate(c.last_session, { month: 'short', day: 'numeric', year: 'numeric' })) : ''}
         ${c.next_session ? ' · next ' + esc(fmtDate(c.next_session.slice(0, 10), { month: 'short', day: 'numeric' })) + ' ' + esc(fmtTime(c.next_session.slice(11))) : ''}
       </div>
-      ${c.student_email ? '' : `<div class="addmail"><input type="email" class="compact" data-f="student_email" placeholder="Student’s email" value="${esc(c.suggested_student_email || '')}">
+      ${c.student_email || c.is_test ? '' : `<div class="addmail"><input type="email" class="compact" data-f="student_email" placeholder="Student’s email" value="${esc(c.suggested_student_email || '')}">
         <button class="btn btn-sm" data-savemail>Save</button></div>
         ${c.suggested_student_email ? '<p class="small muted" style="margin:0">Suggested: this student signed in to /student with that address.</p>' : ''}`}
       ${attachHtml(c)}
@@ -914,7 +922,7 @@
 
   function renderBulkResult(elId, res, label){
     const created = res.created.length
-      ? `<p class="small"><strong>${label}s invoiced:</strong> ${res.created.map(c => `${esc(c.name)} (${esc(c.number)}, ${money(c.total)})`).join(', ')}</p>` : '';
+      ? `<p class="small"><strong>${label}s invoiced:</strong> ${res.created.map(c => `${esc(c.name)} (${esc(c.number)}, ${money(c.total)})${c.test ? ' — TEST, not counted' : ''}`).join(', ')}</p>` : '';
     const skipped = res.skipped.length
       ? `<p class="small error"><strong>Skipped:</strong> ${res.skipped.map(s => `${esc(s.name)} — ${esc(s.reason)}`).join('; ')}</p>` : '';
     $(elId).innerHTML = created + skipped || '<p class="small muted">Nothing to generate — everything this month is already handled.</p>';
@@ -1088,7 +1096,7 @@
     const c = clients.find(x => String(x.id) === $('iClient').value) || {};
     const lines = draftLinesOut();
     return {
-      number: 'PW-' + ($('iMonth').value || '').replace('-', '') + '-##',
+      number: (c.is_test ? 'TEST-' : 'PW-') + ($('iMonth').value || '').replace('-', '') + '-##',
       from_line: $('iLlc').checked ? 'Palisade Writers LLC' : 'Palisade Writers',
       bill_to: c.name || '', student: c.student || '', period: $('iMonth').value || thisMonth(),
       issued_date: $('iIssued').value, due_text: $('iDue').value, notes: $('iNotes').value,
@@ -1161,7 +1169,7 @@
       <thead><tr><th>Number</th><th>Client</th><th>For</th><th>Issued</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
       <tbody>${invoices.map(i => `<tr class="${i.status === 'void' ? 'inactive' : ''}">
         <td class="num" style="text-align:left">${esc(i.number)}</td>
-        <td>${esc(i.bill_to)}${i.student ? '<br><span class="muted small">' + esc(i.student) + '</span>' : ''}</td>
+        <td>${esc(i.bill_to)}${i.test ? ' ' + TEST_PILL : ''}${i.student ? '<br><span class="muted small">' + esc(i.student) + '</span>' : ''}</td>
         <td>${esc(monthLabel(i.period))}</td>
         <td style="white-space:nowrap">${esc(fmtDate(i.issued_date, { month: 'short', day: 'numeric', year: 'numeric' }))}</td>
         <td class="num">${money(i.total)}</td>
@@ -1169,7 +1177,8 @@
         <td style="white-space:nowrap">
           <button class="btn btn-sm" data-print="${esc(i.id)}">View / print</button>
           ${i.status === 'void' ? '' : `<button class="btn btn-sm" data-email="${esc(i.id)}" title="${i.emailed_at ? 'Emailed ' + esc(i.emailed_at) + ' to ' + esc(i.emailed_to) : 'Email it to the client, CC the founders'}">${i.emailed_at ? 'Email again' : 'Email to client'}</button>
-            <button class="btn btn-sm btn-danger" data-void="${esc(i.id)}">Void</button>`}
+            <button class="btn btn-sm btn-danger" data-void="${esc(i.id)}" title="Keep it on record as void, and free its sessions">Void</button>`}
+          <button class="btn btn-sm btn-danger" data-delinvoice="${esc(i.id)}" title="Remove it entirely, and free its sessions">Delete</button>
           ${i.emailed_at ? `<div class="small muted">Emailed ${esc(fmtDate(i.emailed_at.slice(0, 10), { month: 'short', day: 'numeric' }))}</div>` : ''}
         </td></tr>`).join('')}</tbody>`
       : '<tbody><tr><td class="empty">No invoices yet.</td></tr></tbody>';
@@ -1187,8 +1196,9 @@
       const inv = invoices.find(i => i.id === d.email);
       const c = clients.find(x => x.id === inv.client_id) || {};
       const founders = users.filter(u => u.role === 'founder' && u.active).map(u => u.email);
-      if(!c.billing_email){ toast('This client has no billing email. Add one under Team & clients.', true); return; }
-      if(!confirm(`Email ${inv.number} (${money(inv.total)}) to ${c.billing_email}?\n\nCC: ${founders.join(', ')}\nTutors are never copied.` +
+      const to = c.is_test ? (c.test_emails || []).join(', ') : c.billing_email;
+      if(!to){ toast('This client has no billing email. Add one under Team & clients.', true); return; }
+      if(!confirm(`Email ${inv.number} (${money(inv.total)}) to ${to}?\n\nCC: ${founders.join(', ')}\nTutors are never copied.` +
         (inv.emailed_at ? `\n\nIt was already emailed ${inv.emailed_at}.` : '') + '\n\nCheck it with View / print first.')) return;
       try {
         const r = await api('admin/invoices/' + d.email + '/email', { method: 'POST', body: {} });
@@ -1203,6 +1213,18 @@
         await api('admin/invoices/' + d.void, { method: 'PUT', body: { status: 'void' } });
         toast(inv.number + ' voided');
         await Promise.all([loadInvoices(), loadSessions(), loadBuilder()]);
+      } catch(err){ toast(err.message, true); }
+    }
+    if(d.delinvoice){
+      const inv = invoices.find(i => i.id === d.delinvoice);
+      const real = !inv.test && (inv.status === 'sent' || inv.status === 'paid' || inv.emailed_at);
+      if(!confirm(`Delete ${inv.number} (${money(inv.total)}) for ${inv.bill_to}?\n\nIt's removed entirely, not kept as void. Its sessions go back to "not invoiced". The number won't be reused.` +
+        (real ? `\n\nThis invoice was ${inv.status === 'paid' ? 'paid' : 'sent to the client'}. Void keeps a record of it; Delete doesn't.` : '') +
+        `\n\nThis can't be undone.`)) return;
+      try {
+        await api('admin/invoices/' + d.delinvoice, { method: 'DELETE' });
+        toast(inv.number + ' deleted');
+        await Promise.all([loadInvoices(), loadSessions(), loadBuilder(), loadPeople()]);
       } catch(err){ toast(err.message, true); }
     }
   });
@@ -1267,8 +1289,8 @@
     $('clientTable').innerHTML = clients.length ? `
       <thead><tr><th>Client</th><th>Student</th><th>Billing</th><th>Location</th><th class="num">Default rate</th><th>Tutors</th><th></th></tr></thead>
       <tbody>${clients.map(c => `<tr class="${c.active ? '' : 'inactive'}">
-        <td>${esc(c.name)}${c.billing_email ? '<br><span class="muted small">' + esc(c.billing_email) + '</span>' : ''}</td>
-        <td>${esc(c.student)}${c.student_email ? '<br><span class="muted small">' + esc(c.student_email) + '</span>' : ''}${c.active ? '' : '<br><span class="pill">Not active</span>'}</td>
+        <td>${esc(c.name)}${c.is_test ? ' ' + TEST_PILL + '<br><span class="muted small">' + testWho(c) + '</span>' : c.billing_email ? '<br><span class="muted small">' + esc(c.billing_email) + '</span>' : ''}</td>
+        <td>${esc(c.student)}${c.is_test ? '<br><span class="muted small">All founders</span>' : c.student_email ? '<br><span class="muted small">' + esc(c.student_email) + '</span>' : ''}${c.active ? '' : '<br><span class="pill">Not active</span>'}</td>
         <td>${billBadge(c.billing_mode)}${c.billing_mode === 'paid' || c.package_sessions ? `<br><span class="muted small">${esc(pkgLeft(c))}</span>` : ''}</td>
         <td>${esc(c.location || '')}</td>
         <td class="num">${c.default_rate !== null ? money(c.default_rate) + '/hr' : '<span class="pill warn">not set</span>'}</td>
@@ -1322,7 +1344,7 @@
         </tr>`; }).join('')}</tbody></table></div>`}
       <div class="row end" style="margin-top:12px;">
         ${isNew ? '' : c.invoice_count
-          ? `<span class="small muted">Has invoices, so it can't be deleted — untick Active to hide it.</span>`
+          ? `<span class="small muted">Has invoices, so it can't be deleted — untick Active to hide it, or delete its invoices first.</span>`
           : `<button type="button" class="btn btn-danger" id="cDelete">Delete client</button>`}
         <span class="spacer"></span>
         <button type="button" class="btn" id="cCancel">Cancel</button>
