@@ -5,6 +5,17 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
 - Source of truth for the deployed site is `public/` — edit files there directly.
 - Deploys to Cloudflare Workers via Assets (not Pages, not Workers Sites).
 - Deploy command: `npm run deploy` (`wrangler deploy`; run `npm install` first)
+- **This site is worked on from more than one computer and session, and a deploy
+  uploads the local folder wholesale.** So:
+  - **Start every task with `git pull --rebase`** on `palisade-rebrand`, before reading
+    or editing anything. Working from a stale checkout is how changes get lost.
+  - **Commit and push before deploying.** `npm run predeploy` (run automatically by
+    `npm run deploy`) refuses to deploy when the checkout is dirty, behind or ahead of
+    GitHub, or when production has a D1 migration this checkout lacks. Never bypass it
+    (e.g. with a bare `npx wrangler deploy`); fix the cause instead.
+  - New migrations take the next number after the highest one on GitHub *and* in
+    production (`SELECT name FROM d1_migrations`). `0006_invoice_overrides.sql`
+    shares 0006 with `0006_scheduling.sql` for historical reasons; don't rename it.
 - Config: `wrangler.jsonc` (routes bind palisadewriters.com + www to this Worker)
 - Contact form posts to web3forms.com (access key hardcoded in `public/index.html`).
 - Landing copy must not promise admissions (or publication) outcomes — no "we get
@@ -52,6 +63,18 @@ Static site (plain HTML/CSS/JS, no framework, no build step) for palisadewriters
   (not real, not counted)". Every new total, report or export must leave it out too.
   It's marked with a TEST pill everywhere it shows.
 - The weekly update (`ops/weekly-update.md`) leaves it alone.
+
+### Editing the invoice in place
+
+- The live preview in the invoice builder is the editor: every piece of text on it is
+  `contenteditable` (`invoiceDoc(inv, true)` in `invoice.html`). Line fields write back to
+  the builder's `draft`; everything else goes into `ov`, keyed by `data-ov`.
+- On save, `bill_to`/`student`/`from_line`/`number` go to their own columns, a typed total
+  replaces the sum, a typed line amount replaces hours × rate, and all other text (labels,
+  payment methods, fee paragraph, footer) is stored as JSON in `invoices.overrides`
+  (migration `0006_invoice_overrides.sql`). The print view and the client email
+  (`invoiceEmailHtml`) both read it. A typed invoice number must be unused and doesn't
+  advance the `nextNumber()` series.
 
 ### Voiding vs deleting invoices
 

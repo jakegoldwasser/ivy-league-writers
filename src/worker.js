@@ -912,6 +912,8 @@ async function adminRoutes(request, env, user, seg, url) {
       if (!inv) throw new HttpError(404, 'Invoice not found.');
       const { results } = await env.DB.prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY sort').bind(id).all();
       inv.lines = results;
+      try { inv.ov = JSON.parse(inv.overrides || '{}'); } catch { inv.ov = {}; }
+      delete inv.overrides;
       return json(inv);
     }
     if (!id && method === 'POST') return createInvoice(env, user, await body(request));
@@ -993,7 +995,7 @@ async function createInvoice(env, user, b) {
     lines.push({
       session_id: s.id, date: s.date, minutes, rate,
       description: str(l.description, 200, 'Description') || s.service || 'Tutoring session',
-      amount: round2(rate * minutes / 60),
+      amount: amountOverride(l.amount) ?? round2(rate * minutes / 60),
     });
   }
   // Manual lines are either hourly (hours × rate) or a flat amount (fees, packages,
@@ -1005,7 +1007,8 @@ async function createInvoice(env, user, b) {
     const minutes = e.minutes === undefined || e.minutes === null || e.minutes === '' ? null : billedMinutes(e.minutes, `"${description}"`);
     const rate = minutes ? rateParam(e.rate) : null;
     let amount;
-    if (minutes && rate !== null) amount = round2(rate * minutes / 60);
+    if (amountOverride(e.amount) !== null) amount = amountOverride(e.amount);
+    else if (minutes && rate !== null) amount = round2(rate * minutes / 60);
     else {
       amount = Number(e.amount);
       if (e.amount === '' || e.amount === null || !Number.isFinite(amount) || Math.abs(amount) > 100000)
@@ -1016,8 +1019,31 @@ async function createInvoice(env, user, b) {
   }
   // Dated lines in date order, undated ones (fees, discounts) after them.
   lines.sort((a, b2) => (!a.date) - (!b2.date) || a.date.localeCompare(b2.date));
-  const saved = await saveInvoice(env, user, client, period, issued, str(b.due_text, 120, 'Payment due'), !!b.llc, str(b.notes, 1000, 'Notes'), lines);
+  const saved = await saveInvoice(env, user, client, period, issued, str(b.due_text, 120, 'Payment due'), !!b.llc, str(b.notes, 1000, 'Notes'), lines, overridesParam(b.overrides));
   return json(saved, 201);
+}
+
+// A line's amount typed directly on the invoice, replacing hours x rate. null = not overridden.
+function amountOverride(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || Math.abs(n) > 100000) bad('Line amounts must be between -$100,000 and $100,000.');
+  return round2(n);
+}
+
+// Text edited directly on the invoice document. Only known keys are kept; the four
+// that have their own columns are split out, the rest is stored as JSON.
+const COLUMN_OVERRIDES = ['bill_to', 'student', 'from_line', 'number'];
+function overridesParam(o) {
+  const out = { columns: {}, extra: {}, total: null };
+  if (!o || typeof o !== 'object') return out;
+  for (const [k, v] of Object.entries(o)) {
+    if (k === 'total') { out.total = amountOverride(v); continue; }
+    if (!/^[a-z_]{1,32}$/.test(k) || typeof v !== 'string') continue;
+    const t = str(v, 2000, 'Invoice text');
+    (COLUMN_OVERRIDES.includes(k) ? out.columns : out.extra)[k] = t;
+  }
+  return out;
 }
 
 // The next number after the highest one ever issued under `prefix` -- the
@@ -1039,17 +1065,26 @@ async function nextNumber(env, prefix) {
 
 // Shared by the manual builder and "Generate all invoices". One batch = one
 // transaction: the invoice, its lines and the session links land together or not at all.
-async function saveInvoice(env, user, client, period, issued, dueText, llc, notes, lines) {
-  const total = round2(lines.reduce((sum, l) => sum + l.amount, 0));
+async function saveInvoice(env, user, client, period, issued, dueText, llc, notes, lines, ov = { columns: {}, extra: {}, total: null }) {
+  const total = ov.total ?? round2(lines.reduce((sum, l) => sum + l.amount, 0));
+  // A number typed on the invoice is used as is (and doesn't advance the series); otherwise
   // TEST client invoices get their own TEST-… series, so they never take a real number.
-  const { number, record } = await nextNumber(env, (client.is_test ? 'TEST-' : 'PW-') + period.replace('-', '') + '-');
+  let number = ov.columns.number, record = null;
+  if (number) {
+    if (await env.DB.prepare('SELECT 1 FROM invoices WHERE number = ?').bind(number).first()) bad(`Invoice number ${number} is already used.`);
+  } else {
+    ({ number, record } = await nextNumber(env, (client.is_test ? 'TEST-' : 'PW-') + period.replace('-', '') + '-'));
+  }
+  const billTo = ov.columns.bill_to || client.name;
+  const student = ov.columns.student ?? client.student;
+  const fromLine = ov.columns.from_line || (llc ? 'Palisade Writers LLC' : 'Palisade Writers');
   const invoiceId = crypto.randomUUID();
   const stmts = [
-    record,
-    env.DB.prepare(`INSERT INTO invoices (id, number, client_id, period, issued_date, due_text, bill_to, student, from_line, notes, total, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(invoiceId, number, client.id, period, issued, dueText, client.name, client.student,
-        llc ? 'Palisade Writers LLC' : 'Palisade Writers', notes, total, user.email),
+    ...(record ? [record] : []),
+    env.DB.prepare(`INSERT INTO invoices (id, number, client_id, period, issued_date, due_text, bill_to, student, from_line, notes, total, created_by, overrides)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(invoiceId, number, client.id, period, issued, dueText, billTo, student,
+        fromLine, notes, total, user.email, JSON.stringify(ov.extra)),
     ...lines.map((l, i) => env.DB.prepare(`INSERT INTO invoice_lines (invoice_id, session_id, date, description, minutes, rate, amount, sort)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(invoiceId, l.session_id, l.date, l.description, l.minutes, l.rate, l.amount, i)),
     ...lines.filter(l => l.session_id).map(l => env.DB.prepare(
@@ -1295,6 +1330,10 @@ async function emailInvoice(env, id) {
 const monthName = ym => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' }); };
 
 function invoiceEmailHtml(inv, lines) {
+  // Text edited on the invoice document (see invoiceDoc in invoice.html) replaces the defaults here too.
+  let o = {};
+  try { o = JSON.parse(inv.overrides || '{}'); } catch {}
+  const t = (k, def) => esc(o[k] ?? def);
   const td = 'padding:6px 8px;border-bottom:1px dashed #d8d2c4;font-size:13px;';
   const rows = lines.map(l => `<tr>
     <td style="${td}white-space:nowrap">${l.date ? esc(shortDate(l.date)) : ''}</td>
@@ -1305,23 +1344,23 @@ function invoiceEmailHtml(inv, lines) {
   const row = (k, v) => `<tr><td style="padding:3px 0;color:#6b6457;font-size:13px">${k}</td><td style="padding:3px 0;text-align:right;font-size:13px">${v}</td></tr>`;
   return `<div style="font-family:Georgia,serif;color:#1f1d1a;max-width:640px">
     <h2 style="margin:0 0 2px">${esc(inv.from_line)}</h2>
-    <p style="margin:0 0 18px;font:600 12px Helvetica,Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#6b6457">Invoice ${esc(inv.number)}</p>
+    <p style="margin:0 0 18px;font:600 12px Helvetica,Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#6b6457">${t('t_head', 'Invoice')} ${esc(inv.number)}</p>
     <table style="width:100%;border-collapse:collapse;font-family:Helvetica,Arial,sans-serif">
-      ${row('Bill to', esc(inv.bill_to) + (inv.student ? ' (for ' + esc(inv.student) + ')' : ''))}
+      ${row(t('l_billto', 'Bill to'), esc(inv.bill_to) + (inv.student ? ' (for ' + esc(inv.student) + ')' : ''))}
       ${row('Date', esc(longDate(inv.issued_date)))}
-      ${row('Services for', esc(monthName(inv.period)))}
-      ${row('Payment due', esc(inv.due_text) || '—')}
-      ${row('Payment methods', 'Venmo or Zelle to @palisadewriters')}
+      ${row(t('l_period', 'Services for'), t('period_text', monthName(inv.period)))}
+      ${row(t('l_due', 'Payment due'), esc(inv.due_text) || '—')}
+      ${row(t('l_methods', 'Payment methods'), t('methods', 'Venmo or Zelle to @palisadewriters'))}
     </table>
     <table style="width:100%;border-collapse:collapse;margin-top:14px;font-family:Helvetica,Arial,sans-serif">
-      <tr><th align="left" style="${td}">Date</th><th align="left" style="${td}">Description</th><th align="right" style="${td}">Length</th><th align="right" style="${td}">Rate</th><th align="right" style="${td}">Amount</th></tr>
+      <tr><th align="left" style="${td}">${t('h_date', 'Date')}</th><th align="left" style="${td}">${t('h_desc', 'Description')}</th><th align="right" style="${td}">${t('h_len', 'Length')}</th><th align="right" style="${td}">${t('h_rate', 'Rate')}</th><th align="right" style="${td}">${t('h_amt', 'Amount')}</th></tr>
       ${rows}
     </table>
-    <p style="font:700 15px Helvetica,Arial,sans-serif;text-align:right;border-top:1.5px solid #1f1d1a;padding-top:8px">Total due: ${money(inv.total)}</p>
-    ${inv.notes ? `<p style="font-size:14px">${esc(inv.notes)}</p>` : ''}
-    <p style="font:italic 12px Helvetica,Arial,sans-serif;color:#6b6457;line-height:1.55">Payment can be made via Venmo or Zelle to @palisadewriters. Credit card payments incur a
+    <p style="font:700 15px Helvetica,Arial,sans-serif;text-align:right;border-top:1.5px solid #1f1d1a;padding-top:8px">${t('l_total', 'Total due')}: ${money(inv.total)}</p>
+    ${inv.notes ? `<p style="font-size:14px;white-space:pre-wrap">${esc(inv.notes)}</p>` : ''}
+    <p style="font:italic 12px Helvetica,Arial,sans-serif;color:#6b6457;line-height:1.55">${o.fee_text !== undefined ? esc(o.fee_text) : `Payment can be made via Venmo or Zelle to @palisadewriters. Credit card payments incur a
       2% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or bank/wire transfer
-      fees incurred in sending payment. The amount received by ${esc(inv.from_line)} must equal the Total Due above, net of any such fees.</p>
+      fees incurred in sending payment. The amount received by ${esc(inv.from_line)} must equal the Total Due above, net of any such fees.`}</p>
     <p style="font:12px Helvetica,Arial,sans-serif;color:#6b6457">Questions about this invoice? Just reply to this email.</p>
   </div>`;
 }

@@ -81,15 +81,34 @@
   .invoice .invhead h4{ margin:0; font-size:15px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent-ink); }
   .invoice .invno{ font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--ink-soft); }
   .invoice .invrow{ display:flex; justify-content:space-between; gap:16px; font-size:13px; margin-bottom:6px; }
-  .invoice .invrow span:first-child{ color:var(--ink-soft); }
-  .invoice .invrow span:last-child{ text-align:right; }
+  .invoice .invrow > span:first-child{ color:var(--ink-soft); }
+  .invoice .invrow > span:last-child{ text-align:right; }
   .invoice table{ margin-top:12px; font-size:12.5px; }
   .invoice th{ padding:6px 4px; border-bottom:1px solid var(--border); }
   .invoice td{ padding:6px 4px; border-bottom:1px dashed var(--border); }
   .invoice .invtotal{ display:flex; justify-content:space-between; gap:16px; font-size:15px; font-weight:700; padding-top:10px; border-top:1.5px solid var(--ink); margin-top:8px; }
   .invoice .invnum{ font-family:'IBM Plex Mono'; font-variant-numeric:tabular-nums; }
   .invoice .invfee{ font-size:11.5px; color:var(--ink-soft); font-style:italic; margin-top:12px; line-height:1.55; }
-  .invoice .invnote{ font-size:12.5px; margin-top:10px; }
+  .invoice .invnote{ font-size:12.5px; margin-top:10px; white-space:pre-wrap; }
+
+  /* Live preview is the editor: every piece of text is contenteditable. Hover/focus use outlines
+     (not borders or padding) so editing never shifts the layout. */
+  .editable .ed{ outline:1.5px dashed transparent; outline-offset:2px; border-radius:2px; cursor:text; transition:outline-color .15s, background-color .15s; }
+  .editable .ed:hover{ outline-color:var(--accent); }
+  .editable .ed:focus{ outline:2px solid var(--accent); background:var(--accent-wash); }
+  .editable .ed:empty::before{ content:attr(data-ph); color:var(--blank); }
+  .editable .ed[data-multi]{ white-space:pre-wrap; }
+  .editable .invnote.ed:empty{ display:block; min-height:1.4em; }
+  .editable .invoice input[type=date]{ font:inherit; color:inherit; background:transparent; border:0; padding:0; width:auto; outline:1.5px dashed transparent; outline-offset:2px; border-radius:2px; }
+  .editable .invoice input[type=date]:hover{ outline-color:var(--accent); }
+  .editable .invoice input[type=date]:focus{ outline:2px solid var(--accent); background:var(--accent-wash); }
+  .editable .invoice td.act, .editable .invoice th.act{ width:22px; padding:0; border-bottom-color:transparent; }
+  .editable .invoice .rowdel{ border:0; background:none; color:var(--blank); cursor:pointer; font-size:12px; padding:2px 4px; border-radius:999px; }
+  .editable .invoice .rowdel:hover{ color:var(--rust); background:var(--rust-wash); }
+  .invoice .edtools{ margin-top:8px; }
+  .editable .invoice .addline{ font:600 11.5px 'IBM Plex Sans'; border:1px dashed var(--accent); background:none; color:var(--accent-ink); border-radius:999px; padding:3px 12px; cursor:pointer; }
+  .editable .invoice .addline:hover{ background:var(--accent-wash); }
+  .edhint{ font:12px 'IBM Plex Sans'; color:var(--ink-soft); margin:0 0 8px; }
   .doc .disclaimer{ margin-top:22px; font:italic 11.5px 'IBM Plex Sans'; color:var(--ink-soft); }
 
   @media print{
@@ -898,6 +917,8 @@
   // Every line: { session?, include, date, description, hrs, rate, amount }. hrs/rate/amount
   // hold the raw text typed, so half-typed values like "1." survive re-renders.
   let draft = [];
+  // Text edited directly on the invoice document, keyed by its data-ov name. Anything absent shows its default.
+  let ov = {};
   $('iMonth').value = shiftMonth(thisMonth(), 0);
   $('iIssued').value = localISO();
   $('iLlc').checked = storage.get('pw.llc') === '1';
@@ -931,6 +952,7 @@
   async function loadBuilder(){
     const clientId = $('iClient').value, month = $('iMonth').value;
     draft = [];
+    ov = {};
     if(clientId === 'all'){
       $('builder').hidden = true; $('builderEmpty').hidden = true;
       $('bulkInvoice').hidden = false;
@@ -944,7 +966,7 @@
     try { sessions = await api(`admin/sessions?month=${month}&client=${clientId}&status=uninvoiced`); }
     catch(err){ toast(err.message, true); }
     draft = sessions.map(s => ({
-      session: s, include: true, date: s.date, hrs: hrsText(s.minutes), rate: s.bill_rate ?? '', amount: '',
+      session: s, include: true, date: s.date, hrs: hrsText(s.minutes), rate: s.bill_rate ?? '', amount: '', amountOv: '',
       description: (s.service || 'Tutoring session') + ' with ' + firstName(s.tutor_name || s.tutor_email),
     }));
     $('builder').hidden = false;
@@ -968,7 +990,9 @@
   const lineMinutes = l => parseHours(l.hrs);
   // Hourly when it has hours and a rate; otherwise a manual line falls back to its flat amount.
   const isHourly = l => { const m = lineMinutes(l); return m > 0 && numOrNull(l.rate) !== null; };
-  const lineAmount = l => isHourly(l) ? round2(Number(l.rate) * lineMinutes(l) / 60)
+  // amountOv is an amount typed straight onto the invoice; it wins over hours x rate until hours or rate change.
+  const lineAmount = l => numOrNull(l.amountOv) !== null ? round2(Number(l.amountOv))
+    : isHourly(l) ? round2(Number(l.rate) * lineMinutes(l) / 60)
     : (!l.session && numOrNull(l.amount) !== null ? round2(Number(l.amount)) : null);
   const blankLine = l => !l.session && !l.description.trim() && !String(l.hrs).trim() && String(l.amount).trim() === '';
 
@@ -1022,6 +1046,7 @@
     if(f === 'amount' && e.target.readOnly) return;
     const l = draft[i];
     l[f] = f === 'include' ? e.target.checked : e.target.value;
+    if(f === 'amount' || f === 'hrs' || f === 'rate') l.amountOv = '';
     // Typing hours on an added line makes it hourly, so start it at the client's rate.
     if(f === 'hrs' && !l.session && l.rate === '' && lineMinutes(l) > 0){
       const c = clients.find(x => String(x.id) === $('iClient').value);
@@ -1044,50 +1069,71 @@
     renderBuilder();
   });
   $('iAddExtra').addEventListener('click', () => {
-    draft.push({ include: true, date: '', description: '', hrs: '', rate: '', amount: '' });
+    draft.push({ include: true, date: '', description: '', hrs: '', rate: '', amount: '', amountOv: '' });
     renderBuilder();
     $('iLines').querySelector(`tr[data-i="${draft.length - 1}"] [data-f="description"]`)?.focus();
   });
 
-  // Builds the invoice document, shared by the live preview and saved invoices.
-  function invoiceDoc(inv){
+  const feeDefault = from => 'Payment can be made via Venmo or Zelle to @palisadewriters. Credit card payments incur a 2% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or bank/wire transfer fees incurred in sending payment. The amount received by ' + from + ' must equal the Total Due above, net of any such fees.';
+  const disclaimerDefault = from => 'Questions about this invoice? Contact ' + from + '.';
+  // "$1,234.50", "−$25" or "25" -> number; null if there's nothing numeric.
+  const parseMoney = t => { const n = parseFloat(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g, '')); return Number.isFinite(n) ? n : null; };
+
+  // Builds the invoice document, shared by the live preview (edit = true, every piece of text
+  // is contenteditable), the print area and saved invoices. Saved text edits live in inv.ov.
+  function invoiceDoc(inv, edit){
+    const o = inv.ov || {};
+    // One editable (or plain) piece of text. `value` is what to show now, `key` names it for edits.
+    const T = (key, value, { ph = '', multi = false, attrs = '' } = {}) => edit
+      ? `<span class="ed" contenteditable="plaintext-only" spellcheck="false" data-ov="${key}" data-ph="${esc(ph)}"${multi ? ' data-multi' : ''} ${attrs}>${esc(value)}</span>`
+      : esc(value);
+    const L = (key, def) => T(key, o[key] ?? def);
+    const line = (i, f, text, ph, cls = '') => edit
+      ? `<span class="ed ${cls}" contenteditable="plaintext-only" spellcheck="false" data-line="${i}" data-f="${f}" data-ph="${esc(ph)}">${esc(text)}</span>`
+      : esc(text);
     const lineRows = inv.lines.map(l => `<tr>
-      <td style="white-space:nowrap">${l.date ? esc(fmtDate(l.date, { month: 'short', day: 'numeric' })) : ''}</td>
-      <td>${esc(l.description) || '<span class="muted">[description]</span>'}</td>
-      <td class="num">${l.minutes ? esc(duration(l.minutes)) : ''}</td>
-      <td class="num invnum">${l.rate !== null && l.rate !== undefined ? money(l.rate) : ''}</td>
-      <td class="num invnum">${money(l.amount)}</td></tr>`).join('');
-    return `<div class="doc">
-      <h2 class="doctitle">${esc(inv.from_line)}</h2>
-      <p class="docsub">Invoice</p>
+      <td style="white-space:nowrap">${edit ? `<input type="date" data-line="${l._i}" data-f="date" value="${esc(l.date)}" aria-label="Date">`
+        : l.date ? esc(fmtDate(l.date, { month: 'short', day: 'numeric' })) : ''}</td>
+      <td>${edit ? line(l._i, 'description', l.description, 'Description') : esc(l.description) || '<span class="muted">[description]</span>'}</td>
+      <td class="num">${line(l._i, 'hrs', l.minutes ? duration(l.minutes) : '', '—')}</td>
+      <td class="num invnum">${line(l._i, 'rate', l.rate !== null && l.rate !== undefined ? money(l.rate) : '', '—')}</td>
+      <td class="num invnum">${edit ? line(l._i, 'amount', money(l.amount), '$0.00') : money(l.amount)}</td>
+      ${edit ? `<td class="act"><button type="button" class="rowdel" data-linedel="${l._i}" aria-label="Remove line" title="Remove line">✕</button></td>` : ''}</tr>`).join('');
+    const from = inv.from_line;
+    const dateRow = edit
+      ? `<input type="date" data-idate value="${esc(inv.issued_date)}" aria-label="Invoice date">`
+      : esc(fmtDate(inv.issued_date, { year: 'numeric', month: 'long', day: 'numeric' }));
+    return `<div class="doc${edit ? ' editable' : ''}">
+      <h2 class="doctitle">${T('from_line', from, { ph: 'Business name' })}</h2>
+      <p class="docsub">${L('t_sub', 'Invoice')}</p>
       <div class="invoice">
-        <div class="invhead"><h4>Invoice</h4>
-          <span class="invno">No. ${esc(inv.number)} &nbsp;&middot;&nbsp; ${esc(fmtDate(inv.issued_date, { year: 'numeric', month: 'long', day: 'numeric' }))}</span></div>
-        <div class="invrow"><span>Bill to</span><span>${esc(inv.bill_to)}${inv.student ? ' (for ' + esc(inv.student) + ')' : ''}</span></div>
-        <div class="invrow"><span>From</span><span>${esc(inv.from_line)}</span></div>
-        <div class="invrow"><span>Services for</span><span>${esc(monthLabel(inv.period))}</span></div>
-        <div class="invrow"><span>Payment due</span><span>${esc(inv.due_text) || '—'}</span></div>
-        <div class="invrow"><span>Payment methods</span><span>Venmo or Zelle to @palisadewriters</span></div>
+        <div class="invhead"><h4>${L('t_head', 'Invoice')}</h4>
+          <span class="invno">${L('l_no', 'No.')} ${T('number', inv.number, { ph: 'Number' })} &nbsp;&middot;&nbsp; ${dateRow}</span></div>
+        <div class="invrow"><span>${L('l_billto', 'Bill to')}</span><span>${T('bill_to', inv.bill_to, { ph: 'Client' })}${edit || inv.student ? ' (for ' + T('student', inv.student, { ph: 'student' }) + ')' : ''}</span></div>
+        <div class="invrow"><span>${L('l_from', 'From')}</span><span>${T('from_line', from, { ph: 'Business name' })}</span></div>
+        <div class="invrow"><span>${L('l_period', 'Services for')}</span><span>${T('period_text', o.period_text ?? monthLabel(inv.period), { ph: 'Period' })}</span></div>
+        <div class="invrow"><span>${L('l_due', 'Payment due')}</span><span>${edit ? T('due_text', inv.due_text, { ph: '—', attrs: 'data-input="iDue"' }) : esc(inv.due_text) || '—'}</span></div>
+        <div class="invrow"><span>${L('l_methods', 'Payment methods')}</span><span>${L('methods', 'Venmo or Zelle to @palisadewriters')}</span></div>
         <table>
-          <thead><tr><th>Date</th><th>Description</th><th class="num">Length</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
-          <tbody>${lineRows || '<tr><td colspan="5" class="muted">No line items yet.</td></tr>'}</tbody>
+          <thead><tr><th>${L('h_date', 'Date')}</th><th>${L('h_desc', 'Description')}</th><th class="num">${L('h_len', 'Length')}</th><th class="num">${L('h_rate', 'Rate')}</th><th class="num">${L('h_amt', 'Amount')}</th>${edit ? '<th class="act"></th>' : ''}</tr></thead>
+          <tbody>${lineRows || `<tr><td colspan="${edit ? 6 : 5}" class="muted">No line items yet.</td></tr>`}</tbody>
         </table>
-        <div class="invtotal"><span>Total due</span><span class="invnum">${money(inv.total)}</span></div>
-        ${inv.notes ? `<p class="invnote">${esc(inv.notes)}</p>` : ''}
-        <p class="invfee">Payment can be made via Venmo or Zelle to @palisadewriters. Credit card payments incur a
-        2% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or
-        bank/wire transfer fees incurred in sending payment. The amount received by ${esc(inv.from_line)}
-        must equal the Total Due above, net of any such fees.</p>
+        ${edit ? '<div class="edtools"><button type="button" class="addline" data-lineadd>+ Add line</button></div>' : ''}
+        <div class="invtotal"><span>${L('l_total', 'Total due')}</span><span class="invnum">${edit ? T('total', o.total ?? money(inv.total), { ph: '$0.00', attrs: 'data-total' }) : money(inv.total)}</span></div>
+        ${edit ? `<p class="invnote">${T('notes', inv.notes, { ph: 'Add a note…', multi: true, attrs: 'data-input="iNotes"' })}</p>`
+          : inv.notes ? `<p class="invnote">${esc(inv.notes)}</p>` : ''}
+        <p class="invfee">${edit ? T('fee_text', o.fee_text ?? feeDefault(from), { attrs: 'data-fee' }) : esc(o.fee_text ?? feeDefault(from))}</p>
       </div>
-      <p class="disclaimer">Questions about this invoice? Contact ${esc(inv.from_line)}.</p>
+      <p class="disclaimer">${edit ? T('disclaimer', o.disclaimer ?? disclaimerDefault(from), { attrs: 'data-disc' }) : esc(o.disclaimer ?? disclaimerDefault(from))}</p>
     </div>`;
   }
 
   // Lines as they'll be printed: dated ones in date order, undated (fees, discounts) after.
+  // Each carries _i, its index in `draft`, so edits made on the invoice find their line.
   function draftLinesOut(){
-    return draft.filter(l => l.session ? l.include : !blankLine(l)).map(l => {
+    return draft.map((l, i) => [l, i]).filter(([l]) => l.session ? l.include : true).map(([l, i]) => {
       const hourly = isHourly(l), m = lineMinutes(l);
-      return { date: l.date, description: l.description, minutes: m > 0 ? m : null,
+      return { _i: i, date: l.date, description: l.description, minutes: m > 0 ? m : null,
         rate: hourly ? Number(l.rate) : null, amount: lineAmount(l) || 0 };
     }).sort((a, b) => (!a.date) - (!b.date) || a.date.localeCompare(b.date));
   }
@@ -1095,15 +1141,93 @@
   function draftInvoice(){
     const c = clients.find(x => String(x.id) === $('iClient').value) || {};
     const lines = draftLinesOut();
+    const computed = round2(lines.reduce((a, l) => a + l.amount, 0));
     return {
-      number: (c.is_test ? 'TEST-' : 'PW-') + ($('iMonth').value || '').replace('-', '') + '-##',
-      from_line: $('iLlc').checked ? 'Palisade Writers LLC' : 'Palisade Writers',
-      bill_to: c.name || '', student: c.student || '', period: $('iMonth').value || thisMonth(),
+      number: ov.number ?? (c.is_test ? 'TEST-' : 'PW-') + ($('iMonth').value || '').replace('-', '') + '-##',
+      from_line: ov.from_line ?? ($('iLlc').checked ? 'Palisade Writers LLC' : 'Palisade Writers'),
+      bill_to: ov.bill_to ?? (c.name || ''), student: ov.student ?? (c.student || ''), period: $('iMonth').value || thisMonth(),
       issued_date: $('iIssued').value, due_text: $('iDue').value, notes: $('iNotes').value,
-      lines, total: round2(lines.reduce((a, l) => a + l.amount, 0)),
+      ov, lines, total: parseMoney(ov.total ?? '') ?? computed, computed,
     };
   }
-  function renderPreview(){ if(!$('builder').hidden) $('iPreview').innerHTML = invoiceDoc(draftInvoice()); }
+  function renderPreview(){
+    if($('builder').hidden) return;
+    $('iPreview').innerHTML = '<p class="edhint">Click anything on the invoice to edit it directly.</p>' + invoiceDoc(draftInvoice(), true);
+  }
+
+  // ----- editing on the invoice itself -----
+  // Edits update state and the matching builder inputs in place; the preview is not re-rendered
+  // while typing, so the caret stays put.
+  const pv = $('iPreview');
+  const textOf = el => el.matches('input') ? el.value : el.textContent;
+  function syncRow(i){
+    const l = draft[i], tr = $('iLines').querySelector(`tr[data-i="${i}"]`);
+    if(!tr) return;
+    for(const f of ['description', 'hrs', 'rate', 'date']){
+      const inp = tr.querySelector(`[data-f="${f}"]`);
+      if(inp && inp.value !== l[f]) inp.value = l[f];
+    }
+    refreshRow(i);
+  }
+  // Refreshes everything derived (amounts, total, default texts) except the piece being typed in.
+  function patchPreview(){
+    const inv = draftInvoice(), active = document.activeElement;
+    const set = (el, text) => { if(el && el !== active && el.textContent !== text) el.textContent = text; };
+    inv.lines.forEach(l => set(pv.querySelector(`[data-line="${l._i}"][data-f="amount"]`), money(l.amount)));
+    if(ov.total === undefined) set(pv.querySelector('[data-total]'), money(inv.computed));
+    if(ov.fee_text === undefined) set(pv.querySelector('[data-fee]'), feeDefault(inv.from_line));
+    if(ov.disclaimer === undefined) set(pv.querySelector('[data-disc]'), disclaimerDefault(inv.from_line));
+  }
+  pv.addEventListener('input', e => {
+    const el = e.target;
+    if(el.matches('[data-idate]')){ $('iIssued').value = el.value; return; }
+    if(el.dataset.line !== undefined){
+      const i = Number(el.dataset.line), f = el.dataset.f, l = draft[i], v = textOf(el);
+      if(!l) return;
+      if(f === 'description' || f === 'date') l[f] = v;
+      else if(f === 'hrs'){ l.hrs = v; l.amountOv = ''; }
+      else if(f === 'rate'){ l.rate = v.replace(/[^0-9.]/g, ''); l.amountOv = ''; }
+      else if(f === 'amount'){
+        const n = parseMoney(v);
+        // A flat (non-hourly) manual line stores its amount directly; anything else overrides hours x rate.
+        if(!l.session && !isHourly(l)){ l.amount = n === null ? '' : String(n); l.amountOv = ''; }
+        else l.amountOv = n === null ? '' : String(n);
+      }
+      syncRow(i); patchPreview(); return;
+    }
+    const k = el.dataset.ov;
+    if(!k) return;
+    const v = el.textContent;
+    if(el.dataset.input){ $(el.dataset.input).value = v; }
+    else if(k === 'total' && !v.trim()) delete ov.total;
+    else ov[k] = v;
+    // The same text can appear twice (business name); keep the other copy in step.
+    pv.querySelectorAll(`[data-ov="${k}"]`).forEach(o => { if(o !== el) o.textContent = v; });
+    patchPreview();
+  });
+  // Tidy what was typed ("85" -> "$85.00", "90m" -> "1h 30m") once the field is left.
+  pv.addEventListener('focusout', e => {
+    const el = e.target, f = el.dataset.f;
+    if(el.dataset.line === undefined && !el.matches('[data-total]')) return;
+    const t = el.textContent.trim();
+    if(f === 'hrs'){ const m = parseHours(t); if(m > 0) el.textContent = duration(m); }
+    else if(f === 'rate' || f === 'amount' || el.matches('[data-total]')){ const n = parseMoney(t); if(n !== null) el.textContent = money(n); }
+  });
+  pv.addEventListener('keydown', e => {
+    if(e.key === 'Enter' && e.target.matches('.ed') && !e.target.hasAttribute('data-multi')){ e.preventDefault(); e.target.blur(); }
+  });
+  pv.addEventListener('click', e => {
+    if(e.target.closest('[data-lineadd]')){
+      $('iAddExtra').click();
+      pv.querySelector(`[data-line="${draft.length - 1}"][data-f="description"]`)?.focus();
+      return;
+    }
+    const del = e.target.closest('[data-linedel]');
+    if(!del) return;
+    const i = Number(del.dataset.linedel), l = draft[i];
+    if(l.session) l.include = false; else draft.splice(i, 1);
+    renderBuilder();
+  });
 
   // First problem with a line, in words, or '' if it's ready to save.
   function lineProblem(l){
@@ -1121,6 +1245,16 @@
     return '';
   }
 
+  // Only text actually edited on the invoice goes to the server; a number still holding its ## placeholder is auto-assigned.
+  function savedOverrides(){
+    const out = { ...ov };
+    delete out.due_text; delete out.notes;
+    if(out.number === undefined || out.number.includes('##') || !out.number.trim()) delete out.number;
+    const total = parseMoney(out.total ?? '');
+    if(total === null) delete out.total; else out.total = total;
+    return out;
+  }
+
   $('iSave').addEventListener('click', async () => {
     const sessionsIn = draft.filter(l => l.session && l.include);
     const manual = draft.filter(l => !l.session && !blankLine(l));
@@ -1131,12 +1265,15 @@
       const res = await api('admin/invoices', { method: 'POST', body: {
         client_id: Number($('iClient').value), period: $('iMonth').value, issued_date: $('iIssued').value,
         due_text: $('iDue').value, notes: $('iNotes').value, llc: $('iLlc').checked,
-        lines: sessionsIn.map(l => ({ session_id: l.session.id, rate: Number(l.rate), description: l.description, minutes: lineMinutes(l) })),
+        lines: sessionsIn.map(l => ({ session_id: l.session.id, rate: Number(l.rate), description: l.description, minutes: lineMinutes(l),
+          amount: numOrNull(l.amountOv) })),
         extras: manual.map(l => {
           const hourly = isHourly(l);
           return { date: l.date, description: l.description.trim(), minutes: hourly ? lineMinutes(l) : null,
-            rate: hourly ? Number(l.rate) : null, amount: hourly ? null : Number(l.amount) };
+            rate: hourly ? Number(l.rate) : null,
+            amount: numOrNull(l.amountOv) !== null ? Number(l.amountOv) : hourly ? null : Number(l.amount) };
         }),
+        overrides: savedOverrides(),
       }});
       toast('Saved invoice ' + res.number);
       $('iNotes').value = '';
