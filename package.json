@@ -1,0 +1,13 @@
+{
+  "name": "palisade-writers",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "predeploy": "sh scripts/predeploy.sh",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply palisade-portal --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.136.3"
+  }
+}

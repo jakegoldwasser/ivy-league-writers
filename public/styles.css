@@ -479,6 +479,9 @@ footer .foot-links a { text-decoration: none; color: var(--ink-soft); font-size:
 
 footer .foot-links a:hover { color: var(--ink); }
 
+/* No-guarantee disclaimer: kept small and quiet, but full-width so it always sits on its own line. */
+footer .disclaimer { width: 100%; max-width: 70ch; font-size: 0.8rem; line-height: 1.5; color: var(--ink-soft); margin: 8px 0 0; }
+
 footer .copy { width: 100%; font-size: 0.8rem; color: var(--ink-soft); margin-top: 8px; }
 
 /* ---------- Responsive ---------- */
