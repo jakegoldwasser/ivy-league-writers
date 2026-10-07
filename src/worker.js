@@ -1031,10 +1031,10 @@ function plusDays(iso, n) {
   return d.toISOString().slice(0, 10);
 }
 
-// Everything on the docket for one week (Monday to Sunday). In the current
-// week, open items that are overdue or have no date stay on until they're
-// done; items closed during a week stay on it, ticked off, so a past week
-// reads as a record. The TEST client is left out, as in every real total.
+// Everything on the docket for one week (Monday to Sunday). The current week
+// shows every open item, whatever its date (a doc due next Monday is this
+// week's work); other weeks show what was due in them. Items closed during a
+// week stay on it, ticked off, so a past week reads as a record. The TEST client is left out, as in every real total.
 async function dashboard(env, week) {
   const start = mondayOf(week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : todayLocal());
   const end = plusDays(start, 6);
@@ -1042,7 +1042,7 @@ async function dashboard(env, week) {
   const [{ results: items }, { results: sessions }, { results: invoices }, { results: founders }, { results: crawls }, { results: clients }, { results: links }] = await env.DB.batch([
     env.DB.prepare(`SELECT d.*, c.name AS client_name, c.student FROM docket d LEFT JOIN clients c ON c.id = d.client_id
         WHERE (c.is_test IS NULL OR c.is_test = 0) AND (
-          (d.status = 'open' AND ?3 AND (d.due = '' OR substr(d.due, 1, 10) <= ?2))
+          (d.status = 'open' AND ?3)
           OR substr(d.due, 1, 10) BETWEEN ?1 AND ?2
           OR (d.status != 'open' AND substr(d.done_at, 1, 10) BETWEEN ?1 AND ?2))
         ORDER BY d.due = '', d.due, d.id`).bind(start, end, isCurrent),

@@ -252,7 +252,7 @@
       return { date: sess.date, time: sess.start_time || (it && it.due.slice(11)) || '', sess, it, owner: sess.tutor_email };
     });
     for(const it of items) if(!used.has(it.id)) meets.push({ date: it.due.slice(0, 10), time: it.due.slice(11), it, owner: it.owner });
-    const shown = meets.filter(m => m.date && mine(m.owner)).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    const shown = meets.filter(m => m.date >= data.week_start && m.date <= data.week_end && mine(m.owner)).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
     $('meetCount').textContent = shown.length || '';
 
     const days = {};
@@ -274,7 +274,7 @@
         sess && sess.minutes ? sess.minutes + ' min' : '',
         sess && sess.location,
         sess && sess.status === 'held' ? 'held' : '',
-        it && !sess && it.title !== name ? it.title : '',
+        it && !sess && it.title !== name ? (it.title.startsWith(name) ? it.title.slice(name.length).replace(/^[\s:(]+|\)$/g, '') : it.title) : '',
       ].filter(Boolean);
       const prep = it && it.detail ? `<p class="prep">${esc(it.detail)}</p>`
         : sess && sess.summary ? `<p class="prep rundown">${esc(sess.summary)}</p>` : '';
