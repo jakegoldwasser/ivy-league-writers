@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="description" content="Palisade Writers founders' week: student meetings, docs to answer, payments to collect." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%F0%9F%97%93%EF%B8%8F</text></svg>" />
+<title>Palisade Dashboard</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/portal.css">
+<style>
+  .weekhead{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+  .weekhead h1{ margin:0 8px 0 0; font:600 26px 'Source Serif 4', Georgia, serif; }
+  .crawled{ margin:0 0 20px; font-size:12.5px; color:var(--ink-soft); }
+  .crawled.stale{ color:var(--rust); }
+
+  .cols{ display:grid; grid-template-columns:minmax(0, 1.15fr) minmax(0, 1fr); gap:20px; align-items:start; }
+  @media (max-width:900px){ .cols{ grid-template-columns:1fr; } }
+  .card h2{ display:flex; align-items:baseline; gap:8px; }
+  .card h2 .count{ font:500 13px 'IBM Plex Mono', monospace; color:var(--ink-soft); }
+  .card h2 .sum{ margin-left:auto; font:600 15px 'IBM Plex Mono', monospace; color:var(--accent-ink); }
+
+  /* Meetings, by day */
+  .day{ margin:0 0 14px; }
+  .day h3{ margin:0 0 8px; }
+  .day.today h3{ color:var(--rust); }
+  .meet{ border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:8px; background:var(--surface-2); }
+  .meet.past{ opacity:.6; }
+  .meet.prepped{ border-color:#bcd6d2; background:var(--accent-wash); }
+  .meet .top{ display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  .meet .time{ font:600 13px 'IBM Plex Mono', monospace; min-width:64px; }
+  .meet .name{ font:600 16px 'Source Serif 4', Georgia, serif; }
+  .meet .facts{ font-size:12.5px; color:var(--ink-soft); }
+  .meet .prep{ margin:8px 0 0; font-size:13.5px; line-height:1.5; white-space:pre-wrap; }
+  .meet .prep.rundown{ color:var(--ink-soft); }
+  .meet .row{ margin-top:8px; gap:6px; }
+
+  /* To-do items */
+  .item{ display:grid; grid-template-columns:auto minmax(0, 1fr); gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .item:last-child{ border-bottom:none; }
+  .tick{ width:28px; height:28px; border-radius:50%; border:1.5px solid var(--blank); background:var(--surface); cursor:pointer; color:transparent; font:700 14px 'IBM Plex Sans'; padding:0; }
+  .tick:hover{ border-color:var(--accent); color:var(--accent); }
+  .item.closed .tick{ background:var(--accent); border-color:var(--accent); color:#fff; }
+  .item.closed .ttl{ text-decoration:line-through; color:var(--ink-soft); }
+  .item .ttl{ font-weight:600; font-size:14px; }
+  .item .meta{ font-size:12.5px; color:var(--ink-soft); margin-top:2px; }
+  .item .meta .late{ color:var(--rust); font-weight:600; }
+  .item .det{ font-size:13px; margin-top:4px; white-space:pre-wrap; line-height:1.45; }
+  .item .row{ margin-top:6px; gap:6px; }
+  .amt{ font:600 13px 'IBM Plex Mono', monospace; }
+  .who-pill{ border:1px solid var(--border); background:var(--surface); border-radius:999px; padding:2px 10px; font:600 11.5px 'IBM Plex Sans'; cursor:pointer; color:var(--ink-soft); min-height:24px; }
+  .who-pill:hover{ border-color:var(--accent); color:var(--accent-ink); }
+  .src{ font:600 10.5px 'IBM Plex Sans'; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); }
+  .closedlist{ margin-top:8px; }
+  .closedlist summary{ cursor:pointer; font-size:12.5px; color:var(--ink-soft); padding:6px 0; }
+
+  .addform{ background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:16px; margin-bottom:20px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">Palisade Writers<small>Dashboard</small></a>
+  <div class="who" id="who" hidden>
+    <span id="whoName"></span>
+    <a href="/invoice" class="btn btn-sm">Founder portal</a>
+    <button class="btn btn-sm" id="signOutBtn">Sign out</button>
+  </div>
+</header>
+
+<div class="gate card" id="gate" hidden>
+  <h2>Founder sign-in</h2>
+  <p>The week ahead for Palisade's founders.</p>
+  <div id="gsiButton"></div>
+  <p class="error" id="gateMsg" role="alert"></p>
+</div>
+
+<main class="page" id="app" hidden>
+  <div class="weekhead">
+    <h1 id="weekTitle"></h1>
+    <button class="btn btn-sm" id="prevWeek" aria-label="Previous week">&larr;</button>
+    <button class="btn btn-sm" id="thisWeek">This week</button>
+    <button class="btn btn-sm" id="nextWeek" aria-label="Next week">&rarr;</button>
+    <span class="spacer"></span>
+    <div class="chips" id="whoChips" style="margin:0"></div>
+    <button class="btn btn-primary btn-sm" id="addBtn">+ Add</button>
+  </div>
+  <p class="crawled" id="crawled"></p>
+
+  <form class="addform" id="addForm" hidden>
+    <div class="grid g4">
+      <div>
+        <label class="lbl" for="aKind">What</label>
+        <select id="aKind">
+          <option value="task">To do</option>
+          <option value="doc">Doc to answer</option>
+          <option value="payment">Payment to collect</option>
+          <option value="reply">Email to answer</option>
+          <option value="meeting">Student meeting</option>
+        </select>
+      </div>
+      <div class="span2">
+        <label class="lbl" for="aTitle">Title</label>
+        <input type="text" id="aTitle" required maxlength="300">
+      </div>
+      <div>
+        <label class="lbl" for="aOwner">Whose</label>
+        <select id="aOwner"></select>
+      </div>
+      <div>
+        <label class="lbl" for="aDue">Date <span class="hint">(optional)</span></label>
+        <input type="date" id="aDue">
+      </div>
+      <div>
+        <label class="lbl" for="aTime">Time <span class="hint">(optional)</span></label>
+        <input type="time" id="aTime">
+      </div>
+      <div>
+        <label class="lbl" for="aClient">Student <span class="hint">(optional)</span></label>
+        <select id="aClient"></select>
+      </div>
+      <div>
+        <label class="lbl" for="aAmount">Amount <span class="hint">(payments)</span></label>
+        <input type="number" id="aAmount" step="0.01" min="0">
+      </div>
+      <div class="span2">
+        <label class="lbl" for="aUrl">Link <span class="hint">(optional)</span></label>
+        <input type="text" id="aUrl" placeholder="https://docs.google.com/…">
+      </div>
+      <div class="span2">
+        <label class="lbl" for="aDetail">Notes <span class="hint">(optional)</span></label>
+        <input type="text" id="aDetail" maxlength="4000">
+      </div>
+    </div>
+    <div class="row end" style="margin-top:12px">
+      <button type="button" class="btn" id="addCancel">Cancel</button>
+      <button class="btn btn-primary">Add to the week</button>
+    </div>
+  </form>
+
+  <div class="cols">
+    <section class="card" id="meetCard">
+      <h2>Student meetings <span class="count" id="meetCount"></span></h2>
+      <div id="meetings"></div>
+    </section>
+    <div>
+      <section class="card" data-kind="doc"><h2>Docs to answer <span class="count"></span></h2><div class="list"></div></section>
+      <section class="card" data-kind="payment"><h2>Payments to collect <span class="count"></span><span class="sum"></span></h2><div class="list"></div></section>
+      <section class="card" data-kind="reply"><h2>Emails to answer <span class="count"></span></h2><div class="list"></div></section>
+      <section class="card" data-kind="task"><h2>Other to-dos <span class="count"></span></h2><div class="list"></div></section>
+    </div>
+  </div>
+</main>
+
+<script src="/portal.js"></script>
+<script>
+(async function(){
+  const { $, api, requireUser, signOut, esc, money, fmtDate, fmtTime, localISO, toast } = Portal;
+  const EMPTY = {
+    doc: 'Nobody’s waiting on a doc.',
+    payment: 'Nothing owed.',
+    reply: 'No emails waiting on an answer.',
+    task: 'Nothing else this week.',
+  };
+  const SOURCE = { gmail: 'Gmail', calendar: 'Calendar', drive: 'Drive', imessage: 'Texts', whatsapp: 'WhatsApp', manual: 'Added by hand', portal: 'Portal' };
+
+  let me, data, week = null;
+  let whoFilter = '';
+  try { whoFilter = localStorage.getItem('pwDashWho') || ''; } catch {}
+
+  const { me: user } = await requireUser();
+  me = user;
+  $('who').hidden = false;
+  $('whoName').textContent = me.name || me.email;
+  $('signOutBtn').addEventListener('click', signOut);
+  $('app').hidden = false;
+
+  const first = email => {
+    const f = data.founders.find(x => x.email === email);
+    return f ? (f.name || f.email).split(' ')[0] : (email ? email.split('@')[0] : 'Both');
+  };
+  const ownerLabel = o => o ? first(o) : 'Both';
+  const mine = o => !whoFilter || !o || o === whoFilter;
+
+  function shiftWeek(iso, n){
+    const d = new Date(iso + 'T12:00:00');
+    d.setDate(d.getDate() + 7 * n);
+    return localISO(d);
+  }
+  function ago(iso){
+    const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+    if(mins < 2) return 'just now';
+    if(mins < 60) return mins + ' minutes ago';
+    const h = Math.round(mins / 60);
+    if(h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+    const d = Math.round(h / 24);
+    return d + (d === 1 ? ' day ago' : ' days ago');
+  }
+  function dueText(due){
+    if(!due) return '';
+    const [d, t] = due.split(' ');
+    const late = d < data.today;
+    const txt = (d === data.today ? 'today' : fmtDate(d)) + (t ? ' ' + fmtTime(t) : '');
+    return late ? '<span class="late">was due ' + esc(txt) + '</span>' : 'due ' + esc(txt);
+  }
+
+  async function load(){
+    try {
+      data = await api('admin/dashboard' + (week ? '?week=' + week : ''));
+    } catch(err){ toast(err.message, true); return; }
+    week = data.week_start;
+    render();
+  }
+
+  function render(){
+    const s = data.week_start, e = data.week_end;
+    const sameMonth = s.slice(5, 7) === e.slice(5, 7);
+    $('weekTitle').textContent = 'Week of ' + fmtDate(s, { month: 'long', day: 'numeric' }) + '–' +
+      (sameMonth ? Number(e.slice(8)) : fmtDate(e, { month: 'long', day: 'numeric' }));
+    $('thisWeek').disabled = data.today >= s && data.today <= e;
+
+    // Who: everyone, or one founder (items for both founders always show).
+    $('whoChips').innerHTML = [{ email: '', name: 'Everyone' }, ...data.founders].map(f =>
+      `<button class="chip${whoFilter === f.email ? ' on' : ''}" data-who="${esc(f.email)}">${esc(f.email ? first(f.email) : 'Everyone')}</button>`).join('');
+    $('aOwner').innerHTML = '<option value="">Both</option>' + data.founders.map(f => `<option value="${esc(f.email)}">${esc(first(f.email))}</option>`).join('');
+    $('aClient').innerHTML = '<option value="">—</option>' + data.clients.map(c => `<option value="${c.id}">${esc(c.student || c.name)}</option>`).join('');
+
+    // When the inbox was last read, per founder whose inbox the crawl reads.
+    const cr = data.crawled.sort((a, b) => b.at.localeCompare(a.at));
+    if(!cr.length){
+      $('crawled').textContent = 'Email hasn’t been checked yet. The crawl adds docs, payments and emails here once it runs.';
+      $('crawled').className = 'crawled stale';
+    } else {
+      const stale = Date.now() - new Date(cr[0].at) > 2 * 86400000;
+      $('crawled').className = 'crawled' + (stale ? ' stale' : '');
+      $('crawled').textContent = cr.map(c => first(c.email) + '’s email checked ' + ago(c.at)).join(' · ') + '.';
+    }
+
+    renderMeetings();
+    for(const kind of ['doc', 'payment', 'reply', 'task']) renderList(kind);
+  }
+
+  // Meetings come from two places: sessions booked in the portal, and the
+  // crawl's meeting items (from the calendar, with prep notes). A crawl item
+  // for the same student on the same day is the same meeting.
+  function renderMeetings(){
+    const items = data.items.filter(i => i.kind === 'meeting' && i.status !== 'dismissed');
+    const used = new Set();
+    const meets = data.sessions.map(sess => {
+      const it = items.find(i => !used.has(i.id) && i.client_id === sess.client_id && i.due.slice(0, 10) === sess.date);
+      if(it) used.add(it.id);
+      return { date: sess.date, time: sess.start_time || (it && it.due.slice(11)) || '', sess, it, owner: sess.tutor_email };
+    });
+    for(const it of items) if(!used.has(it.id)) meets.push({ date: it.due.slice(0, 10), time: it.due.slice(11), it, owner: it.owner });
+    const shown = meets.filter(m => m.date && mine(m.owner)).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    $('meetCount').textContent = shown.length || '';
+
+    const days = {};
+    for(const m of shown) (days[m.date] ||= []).push(m);
+    const now = localISO() + ' ' + new Date().toTimeString().slice(0, 5);
+    $('meetings').innerHTML = Object.keys(days).map(d => `
+      <div class="day${d === data.today ? ' today' : ''}">
+        <h3>${d === data.today ? 'Today · ' : ''}${esc(fmtDate(d, { weekday: 'long', month: 'short', day: 'numeric' }))}</h3>
+        ${days[d].map(meetHtml).join('')}
+      </div>`).join('') || '<p class="empty">No student meetings this week.</p>';
+
+    function meetHtml(m){
+      const { sess, it } = m;
+      const name = sess ? (sess.student || sess.client_name) : (it.student || it.client_name || it.title);
+      const prepped = it && it.status === 'done';
+      const past = (m.date + ' ' + (m.time || '23:59')) < now;
+      const facts = [
+        sess ? sess.tutor_name || first(sess.tutor_email) : ownerLabel(it.owner),
+        sess && sess.minutes ? sess.minutes + ' min' : '',
+        sess && sess.location,
+        sess && sess.status === 'held' ? 'held' : '',
+        it && !sess && it.title !== name ? it.title : '',
+      ].filter(Boolean);
+      const prep = it && it.detail ? `<p class="prep">${esc(it.detail)}</p>`
+        : sess && sess.summary ? `<p class="prep rundown">${esc(sess.summary)}</p>` : '';
+      const docs = (sess ? sess.docs : it.docs) || [];
+      const buttons = [
+        ...docs.slice(0, 4).map(dc => `<a class="btn btn-sm" href="${esc(dc.url)}" target="_blank" rel="noopener">${esc(dc.title)}</a>`),
+        it && it.url ? `<a class="btn btn-sm" href="${esc(it.url)}" target="_blank" rel="noopener">Open</a>` : '',
+        `<button class="btn btn-sm${prepped ? '' : ' btn-primary'}" data-prep="${it ? it.id : ''}" data-sess="${sess ? sess.id : ''}">${prepped ? '✓ Prepped' : 'Mark prepped'}</button>`,
+      ].join('');
+      return `<div class="meet${past ? ' past' : ''}${prepped ? ' prepped' : ''}">
+        <div class="top"><span class="time">${m.time ? esc(fmtTime(m.time)) : ''}</span><span class="name">${esc(name)}</span><span class="facts">${esc(facts.join(' · '))}</span></div>
+        ${prep}
+        <div class="row">${buttons}</div>
+      </div>`;
+    }
+  }
+
+  function renderList(kind){
+    const card = document.querySelector(`section[data-kind="${kind}"]`);
+    const all = data.items.filter(i => i.kind === kind && mine(i.owner));
+    let open = all.filter(i => i.status === 'open');
+    const closed = all.filter(i => i.status !== 'open');
+    // Unpaid portal invoices are payments to collect too, read live.
+    let invoices = kind === 'payment' ? data.invoices : [];
+    card.querySelector('.count').textContent = (open.length + invoices.length) || '';
+    if(kind === 'payment'){
+      const sum = open.reduce((t, i) => t + (i.amount || 0), 0) + invoices.reduce((t, i) => t + i.total, 0);
+      card.querySelector('.sum').textContent = sum ? money(sum) : '';
+    }
+    const html = [
+      ...invoices.map(invoiceHtml),
+      ...open.map(itemHtml),
+    ].join('') || `<p class="empty">${EMPTY[kind]}</p>`;
+    card.querySelector('.list').innerHTML = html + (closed.length ? `
+      <details class="closedlist"><summary>${closed.length} ticked off this week</summary>${closed.map(itemHtml).join('')}</details>` : '');
+  }
+
+  function invoiceHtml(inv){
+    const state = inv.status === 'draft' ? 'Draft, not sent yet' : 'Sent' + (inv.emailed_at ? ' ' + fmtDate(inv.emailed_at.slice(0, 10)) : '');
+    return `<div class="item">
+      <button class="tick" title="Mark invoice paid" aria-label="Mark invoice ${esc(inv.number)} paid" data-paid="${esc(inv.id)}">✓</button>
+      <div>
+        <div class="ttl">${esc(inv.student || inv.client_name)} <span class="amt">${money(inv.total)}</span></div>
+        <div class="meta">Invoice ${esc(inv.number)} · ${esc(state)} · <span class="src">Portal</span></div>
+        <div class="row"><a class="btn btn-sm" href="/invoice">Open invoices</a></div>
+      </div>
+    </div>`;
+  }
+
+  function itemHtml(i){
+    const closed = i.status !== 'open';
+    const who = i.student || i.client_name;
+    const meta = [
+      who && !i.title.includes(who) ? esc(who) : '',
+      dueText(i.due),
+      `<span class="src">${esc(SOURCE[i.source] || i.source)}</span>`,
+      closed ? (i.status === 'done' ? 'done' : 'dismissed') + (i.done_by ? ' by ' + esc(first(i.done_by)) : '') : '',
+    ].filter(Boolean).join(' · ');
+    return `<div class="item${closed ? ' closed' : ''}">
+      <button class="tick" data-tick="${i.id}" title="${closed ? 'Put back on the list' : 'Done'}" aria-label="${closed ? 'Undo' : 'Done'}: ${esc(i.title)}">✓</button>
+      <div>
+        <div class="ttl">${esc(i.title)}${i.amount ? ` <span class="amt">${money(i.amount)}</span>` : ''}</div>
+        <div class="meta">${meta}</div>
+        ${i.detail && !closed ? `<div class="det">${esc(i.detail)}</div>` : ''}
+        ${closed ? '' : `<div class="row">
+          ${i.url ? `<a class="btn btn-sm" href="${esc(i.url)}" target="_blank" rel="noopener">Open</a>` : ''}
+          <button class="who-pill" data-owner="${i.id}" title="Whose is this?">${esc(ownerLabel(i.owner))}</button>
+          <button class="btn btn-sm" data-dismiss="${i.id}" title="Not something to act on">Not needed</button>
+        </div>`}
+      </div>
+    </div>`;
+  }
+
+  async function update(id, body){
+    try { await api('admin/docket/' + id, { method: 'PUT', body }); }
+    catch(err){ toast(err.message, true); }
+    await load();
+  }
+
+  document.addEventListener('click', async e => {
+    const t = e.target.closest('button');
+    if(!t) return;
+    if(t.dataset.who !== undefined){
+      whoFilter = t.dataset.who;
+      try { localStorage.setItem('pwDashWho', whoFilter); } catch {}
+      render();
+    } else if(t.dataset.tick){
+      const it = data.items.find(i => i.id === Number(t.dataset.tick));
+      await update(it.id, { status: it.status === 'open' ? 'done' : 'open' });
+    } else if(t.dataset.dismiss){
+      await update(t.dataset.dismiss, { status: 'dismissed' });
+      toast('Taken off the list.');
+    } else if(t.dataset.owner){
+      // Both → each founder in turn → Both.
+      const it = data.items.find(i => i.id === Number(t.dataset.owner));
+      const order = ['', ...data.founders.map(f => f.email)];
+      await update(it.id, { owner: order[(order.indexOf(it.owner) + 1) % order.length] });
+    } else if(t.dataset.paid){
+      const inv = data.invoices.find(i => i.id === t.dataset.paid);
+      if(!confirm(`Mark invoice ${inv.number} (${money(inv.total)}) paid?`)) return;
+      try { await api('admin/invoices/' + inv.id, { method: 'PUT', body: { status: 'paid' } }); toast('Marked paid.'); }
+      catch(err){ toast(err.message, true); }
+      await load();
+    } else if(t.dataset.prep !== undefined){
+      if(t.dataset.prep){
+        const it = data.items.find(i => i.id === Number(t.dataset.prep));
+        await update(it.id, { status: it.status === 'done' ? 'open' : 'done' });
+      } else {
+        // A portal session with no crawl item yet: make one to tick off.
+        const sess = data.sessions.find(s => s.id === Number(t.dataset.sess));
+        try {
+          const r = await api('admin/docket', { method: 'POST', body: {
+            kind: 'meeting', title: sess.student || sess.client_name, client_id: sess.client_id, owner: sess.tutor_email,
+            due: sess.date + (sess.start_time ? ' ' + sess.start_time : '') } });
+          await update(r.id, { status: 'done' });
+        } catch(err){ toast(err.message, true); }
+      }
+    }
+  });
+
+  $('prevWeek').addEventListener('click', () => { week = shiftWeek(week, -1); load(); });
+  $('nextWeek').addEventListener('click', () => { week = shiftWeek(week, 1); load(); });
+  $('thisWeek').addEventListener('click', () => { week = null; load(); });
+
+  $('addBtn').addEventListener('click', () => {
+    $('addForm').hidden = !$('addForm').hidden;
+    if(!$('addForm').hidden){ $('aOwner').value = me.email; $('aTitle').focus(); }
+  });
+  $('addCancel').addEventListener('click', () => { $('addForm').hidden = true; });
+  $('addForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const due = $('aDue').value ? $('aDue').value + ($('aTime').value ? ' ' + $('aTime').value : '') : '';
+    try {
+      await api('admin/docket', { method: 'POST', body: {
+        kind: $('aKind').value, title: $('aTitle').value, owner: $('aOwner').value, due,
+        client_id: $('aClient').value || null, amount: $('aAmount').value, url: $('aUrl').value, detail: $('aDetail').value } });
+      $('addForm').reset();
+      $('addForm').hidden = true;
+      toast('Added.');
+      await load();
+    } catch(err){ toast(err.message, true); }
+  });
+
+  await load();
+})();
+</script>
+</body>
+</html>

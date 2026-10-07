@@ -956,7 +956,119 @@ async function adminRoutes(request, env, user, seg, url) {
     }
   }
 
+  // Weekly dashboard (/dashboard)
+  if (resource === 'dashboard' && !id && method === 'GET') return dashboard(env, q.get('week'));
+  if (resource === 'docket') {
+    if (!id && method === 'POST') {
+      const f = docketFields(await body(request));
+      const r = await env.DB.prepare(`INSERT INTO docket (kind, owner, title, detail, url, due, client_id, amount, source, created_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)`)
+        .bind(f.kind, f.owner, f.title, f.detail, f.url, f.due, f.client_id, f.amount, user.email).run();
+      return json({ ok: true, id: r.meta.last_row_id }, 201);
+    }
+    if (id && method === 'PUT') {
+      const b = await body(request);
+      const item = await env.DB.prepare('SELECT * FROM docket WHERE id = ?').bind(intParam(id)).first();
+      if (!item) throw new HttpError(404, 'Item not found.');
+      // Only the fields sent change, so ticking an item off doesn't need the whole item.
+      const f = docketFields({ ...item, ...b });
+      const status = b.status === undefined ? item.status : b.status;
+      if (!['open', 'done', 'dismissed'].includes(status)) bad('Unknown status.');
+      const closing = status !== 'open' && item.status === 'open';
+      await env.DB.prepare(`UPDATE docket SET kind = ?, owner = ?, title = ?, detail = ?, url = ?, due = ?, client_id = ?, amount = ?,
+          status = ?, done_by = ?, done_at = ?, updated_at = datetime('now') WHERE id = ?`)
+        .bind(f.kind, f.owner, f.title, f.detail, f.url, f.due, f.client_id, f.amount, status,
+          status === 'open' ? null : closing ? user.email : item.done_by,
+          status === 'open' ? null : closing ? todayLocal() + ' ' + nowClock() : item.done_at, item.id).run();
+      return json({ ok: true });
+    }
+    if (id && method === 'DELETE') {
+      const r = await env.DB.prepare('DELETE FROM docket WHERE id = ?').bind(intParam(id)).run();
+      if (!r.meta.changes) throw new HttpError(404, 'Item not found.');
+      return json({ ok: true });
+    }
+  }
+
   throw new HttpError(404, 'Not found.');
+}
+
+// ---------- weekly dashboard ----------
+
+const DOCKET_KINDS = ['meeting', 'doc', 'payment', 'reply', 'task'];
+
+function docketFields(b) {
+  if (!DOCKET_KINDS.includes(b.kind)) bad('Unknown kind.');
+  const due = String(b.due ?? '').trim();
+  if (due && !/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(due)) bad('Use a date like 2026-10-12, optionally with a time (2026-10-12 16:00).');
+  const url = String(b.url ?? '').trim();
+  if (url && !/^https?:\/\//i.test(url)) bad('Links must start with http:// or https://.');
+  const amount = b.amount === null || b.amount === undefined || b.amount === '' ? null : Number(b.amount);
+  if (amount !== null && !Number.isFinite(amount)) bad('Amount must be a number.');
+  return {
+    kind: b.kind,
+    owner: String(b.owner ?? '').trim().toLowerCase(),
+    title: str(b.title, 300, 'Title') || bad('Give it a title.'),
+    detail: String(b.detail ?? '').slice(0, 4000),
+    url: url.slice(0, 1000),
+    due,
+    client_id: b.client_id ? intParam(b.client_id) : null,
+    amount,
+  };
+}
+
+// HH:MM now, New York time (dates and times in the docket are wall-clock, like sessions).
+const nowClock = () => new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+
+// Monday of the week holding `iso` (YYYY-MM-DD).
+function mondayOf(iso) {
+  const d = new Date(iso + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+function plusDays(iso, n) {
+  const d = new Date(iso + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Everything on the docket for one week (Monday to Sunday). In the current
+// week, open items that are overdue or have no date stay on until they're
+// done; items closed during a week stay on it, ticked off, so a past week
+// reads as a record. The TEST client is left out, as in every real total.
+async function dashboard(env, week) {
+  const start = mondayOf(week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : todayLocal());
+  const end = plusDays(start, 6);
+  const isCurrent = start === mondayOf(todayLocal()) ? 1 : 0;
+  const [{ results: items }, { results: sessions }, { results: invoices }, { results: founders }, { results: crawls }, { results: clients }, { results: links }] = await env.DB.batch([
+    env.DB.prepare(`SELECT d.*, c.name AS client_name, c.student FROM docket d LEFT JOIN clients c ON c.id = d.client_id
+        WHERE (c.is_test IS NULL OR c.is_test = 0) AND (
+          (d.status = 'open' AND ?3 AND (d.due = '' OR substr(d.due, 1, 10) <= ?2))
+          OR substr(d.due, 1, 10) BETWEEN ?1 AND ?2
+          OR (d.status != 'open' AND substr(d.done_at, 1, 10) BETWEEN ?1 AND ?2))
+        ORDER BY d.due = '', d.due, d.id`).bind(start, end, isCurrent),
+    env.DB.prepare(`SELECT s.id, s.date, s.start_time, s.minutes, s.status, s.service, s.notes, s.tutor_email, u.name AS tutor_name,
+          c.id AS client_id, c.name AS client_name, c.student, c.summary, c.location
+        FROM sessions s JOIN clients c ON c.id = s.client_id JOIN users u ON u.email = s.tutor_email
+        WHERE s.date BETWEEN ? AND ? AND s.status != 'cancelled' AND c.is_test = 0
+        ORDER BY s.date, s.start_time`).bind(start, end),
+    env.DB.prepare(`SELECT i.id, i.number, i.period, i.issued_date, i.total, i.status, i.emailed_at, i.bill_to, i.student, c.name AS client_name
+        FROM invoices i JOIN clients c ON c.id = i.client_id
+        WHERE i.status IN ('draft', 'sent') AND c.is_test = 0 ORDER BY i.issued_date, i.number`),
+    env.DB.prepare("SELECT email, name FROM users WHERE role = 'founder' AND active = 1 ORDER BY name"),
+    env.DB.prepare("SELECT key, value FROM config WHERE key LIKE 'docket_crawled:%'"),
+    env.DB.prepare('SELECT id, name, student FROM clients WHERE active = 1 AND is_test = 0 ORDER BY student, name'),
+    env.DB.prepare('SELECT client_id, title, url FROM client_links ORDER BY id'),
+  ]);
+  // Meetings carry their student's docs and rundown, for prep.
+  const docsBy = {};
+  for (const l of links) (docsBy[l.client_id] ||= []).push({ title: l.title, url: l.url });
+  for (const s of sessions) s.docs = docsBy[s.client_id] || [];
+  for (const i of items) if (i.client_id) i.docs = docsBy[i.client_id] || [];
+  return json({
+    week_start: start, week_end: end, today: todayLocal(),
+    items, sessions, invoices, founders, clients,
+    crawled: crawls.map(r => ({ email: r.key.slice('docket_crawled:'.length), at: r.value })),
+  });
 }
 
 async function createInvoice(env, user, b) {

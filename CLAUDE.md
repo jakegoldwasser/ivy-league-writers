@@ -150,3 +150,22 @@ the "Ivy League Writers" brand. Do not assume AWS is involved anywhere here.
 - Students tab: a directory with each client's rundown (`clients.summary`),
   student email, active flag and package balance.
 
+
+## Weekly dashboard (`/dashboard`, migration 0009)
+
+- `public/dashboard.html` (uses `portal.js`/`portal.css`), founders only, via
+  `/api/admin/dashboard?week=YYYY-MM-DD` and `/api/admin/docket[/:id]`. One week,
+  Monday to Sunday: **Student meetings** (sessions booked in the portal, merged
+  with the crawl's meeting items for the same student and day, with prep notes),
+  **Docs to answer**, **Payments to collect** (unpaid draft/sent portal invoices,
+  read live, plus money owed outside the portal), **Emails to answer**, **Other
+  to-dos**. A filter shows Everyone or one founder; an item's owner is a founder's
+  email or `''` for both.
+- Everything that isn't live portal data lives in the `docket` table. Most of it is
+  written by the **dashboard crawl** (`ops/dashboard-crawl.md`), a local scheduled
+  Claude Code task that reads a founder's Gmail (texts and WhatsApp later) and
+  upserts by `source_ref`, never touching an item's `status` or `owner`, so what a
+  founder ticks off or reassigns stays that way. It never changes invoices; a payment
+  that arrives for one becomes a to-do to mark it paid. `config` row
+  `docket_crawled:<email>` is when that inbox was last read (shown on the page).
+- The TEST client is left out of the dashboard.
