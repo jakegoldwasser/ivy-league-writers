@@ -1462,7 +1462,7 @@ function invoiceEmailHtml(inv, lines) {
       ${row('Date', esc(longDate(inv.issued_date)))}
       ${row(t('l_period', 'Services for'), t('period_text', monthName(inv.period)))}
       ${row(t('l_due', 'Payment due'), esc(inv.due_text) || '—')}
-      ${row(t('l_methods', 'Payment methods'), t('methods', 'Venmo or Zelle to @palisadewriters'))}
+      ${row(t('l_methods', 'Payment methods'), t('methods', 'Zelle (preferred), Venmo or PayPal to @palisadewriters'))}
     </table>
     <table style="width:100%;border-collapse:collapse;margin-top:14px;font-family:Helvetica,Arial,sans-serif">
       <tr><th align="left" style="${td}">${t('h_date', 'Date')}</th><th align="left" style="${td}">${t('h_desc', 'Description')}</th><th align="right" style="${td}">${t('h_len', 'Length')}</th><th align="right" style="${td}">${t('h_rate', 'Rate')}</th><th align="right" style="${td}">${t('h_amt', 'Amount')}</th></tr>
@@ -1470,8 +1470,8 @@ function invoiceEmailHtml(inv, lines) {
     </table>
     <p style="font:700 15px Helvetica,Arial,sans-serif;text-align:right;border-top:1.5px solid #1f1d1a;padding-top:8px">${t('l_total', 'Total due')}: ${money(inv.total)}</p>
     ${inv.notes ? `<p style="font-size:14px;white-space:pre-wrap">${esc(inv.notes)}</p>` : ''}
-    <p style="font:italic 12px Helvetica,Arial,sans-serif;color:#6b6457;line-height:1.55">${o.fee_text !== undefined ? esc(o.fee_text) : `Payment can be made via Venmo or Zelle to @palisadewriters. Credit card payments incur a
-      2% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or bank/wire transfer
+    <p style="font:italic 12px Helvetica,Arial,sans-serif;color:#6b6457;line-height:1.55">${o.fee_text !== undefined ? esc(o.fee_text) : `Zelle to @palisadewriters is the preferred payment method. Payments by Venmo or PayPal incur a
+      4% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or bank/wire transfer
       fees incurred in sending payment. The amount received by ${esc(inv.from_line)} must equal the Total Due above, net of any such fees.`}</p>
     <p style="font:12px Helvetica,Arial,sans-serif;color:#6b6457">Questions about this invoice? Just reply to this email.</p>
   </div>`;

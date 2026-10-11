@@ -1075,7 +1075,7 @@
     $('iLines').querySelector(`tr[data-i="${draft.length - 1}"] [data-f="description"]`)?.focus();
   });
 
-  const feeDefault = from => 'Payment can be made via Venmo or Zelle to @palisadewriters. Credit card payments incur a 2% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or bank/wire transfer fees incurred in sending payment. The amount received by ' + from + ' must equal the Total Due above, net of any such fees.';
+  const feeDefault = from => 'Zelle to @palisadewriters is the preferred payment method. Payments by Venmo or PayPal incur a 4% fee that the payer is responsible for. Client is also responsible for any foreign transaction fees or bank/wire transfer fees incurred in sending payment. The amount received by ' + from + ' must equal the Total Due above, net of any such fees.';
   const disclaimerDefault = from => 'Questions about this invoice? Contact ' + from + '.';
   // "$1,234.50", "−$25" or "25" -> number; null if there's nothing numeric.
   const parseMoney = t => { const n = parseFloat(String(t).replace(/[−–]/g, '-').replace(/[^0-9.\-]/g, '')); return Number.isFinite(n) ? n : null; };
@@ -1114,7 +1114,7 @@
         <div class="invrow"><span>${L('l_from', 'From')}</span><span>${T('from_line', from, { ph: 'Business name' })}</span></div>
         <div class="invrow"><span>${L('l_period', 'Services for')}</span><span>${T('period_text', o.period_text ?? monthLabel(inv.period), { ph: 'Period' })}</span></div>
         <div class="invrow"><span>${L('l_due', 'Payment due')}</span><span>${edit ? T('due_text', inv.due_text, { ph: '—', attrs: 'data-input="iDue"' }) : esc(inv.due_text) || '—'}</span></div>
-        <div class="invrow"><span>${L('l_methods', 'Payment methods')}</span><span>${L('methods', 'Venmo or Zelle to @palisadewriters')}</span></div>
+        <div class="invrow"><span>${L('l_methods', 'Payment methods')}</span><span>${L('methods', 'Zelle (preferred), Venmo or PayPal to @palisadewriters')}</span></div>
         <table>
           <thead><tr><th>${L('h_date', 'Date')}</th><th>${L('h_desc', 'Description')}</th><th class="num">${L('h_len', 'Length')}</th><th class="num">${L('h_rate', 'Rate')}</th><th class="num">${L('h_amt', 'Amount')}</th>${edit ? '<th class="act"></th>' : ''}</tr></thead>
           <tbody>${lineRows || `<tr><td colspan="${edit ? 6 : 5}" class="muted">No line items yet.</td></tr>`}</tbody>

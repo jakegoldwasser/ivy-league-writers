@@ -257,7 +257,7 @@
           <div id="hourlyWrap" class="indent">
             <label class="lbl" for="hourlyRate">Hourly rate ($)</label>
             <input type="number" id="hourlyRate" value="290" min="0" step="5">
-            <p class="lbl" style="margin-top:8px;color:var(--ink-soft);font-weight:400;">First session due upfront; each session after that billed via Venmo or Zelle within 48 hours.</p>
+            <p class="lbl" style="margin-top:8px;color:var(--ink-soft);font-weight:400;">First session due upfront; each session after that billed via Zelle (preferred), Venmo or PayPal within 48 hours.</p>
             <div class="field" style="margin-top:10px;">
               <label class="lbl" for="invoiceSessions">Sessions to invoice <span class="hint">(for standalone invoice only)</span></label>
               <input type="number" id="invoiceSessions" min="1" step="1" placeholder="e.g. 4">
@@ -438,7 +438,8 @@
       const rate = $('hourlyRate').value;
       return '<p><strong>Rate:</strong> ' + f(rate ? money(rate) + ' per hour' : '', '[rate]') +
         '. Client will be billed by session. Other than the first session, which is due upfront per above, payment ' +
-        'for each session is due via Venmo or Zelle within 48 hours of that session.</p>';
+        'for each session is due within 48 hours of that session. Zelle is the preferred payment method; payments by ' +
+        'Venmo or PayPal incur a 4% fee that Client is responsible for.</p>';
     }
     const tier = radioVal('tier');
     const price = $('pkgPrice').value;
@@ -490,13 +491,14 @@
         <div class="invrow"><span>Bill to</span><span>${f(client, '[client / parent or guardian name]')}${student ? ' (for ' + esc(student) + ')' : ''}</span></div>
         <div class="invrow"><span>From</span><span>${companyLine().replace(/ \("Company"\)$/,'')}</span></div>
         <div class="invrow"><span>Payment due</span><span>${dueText}</span></div>
-        <div class="invrow"><span>Payment methods</span><span>Venmo, Zelle, or bank transfer</span></div>
+        <div class="invrow"><span>Payment methods</span><span>Zelle (preferred), bank transfer, Venmo or PayPal</span></div>
         <div class="invline">
           <span>${lineLabel}</span>
           <span class="invnum">${amount}</span>
         </div>
         <div class="invtotal"><span>Total due</span><span class="invnum">${amount}</span></div>
-        <p class="invfee">Client is responsible for any credit card processing fees, foreign transaction fees, or
+        <p class="invfee">Zelle is the preferred payment method. Payments by Venmo or PayPal incur a 4% fee that Client is responsible for.
+        Client is also responsible for any credit card processing fees, foreign transaction fees, or
         bank/wire transfer fees incurred in sending payment. The amount received by ${companyLine().replace(/ \("Company"\)$/,'')}
         must equal the Total Due above, net of any such fees.</p>
       </div>
