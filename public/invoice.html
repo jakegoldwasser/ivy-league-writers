@@ -1581,7 +1581,8 @@
   loadInvoices();
   loadUpcoming();
   loadTax();
-  const savedTab = storage.get('pw.tab');
+  // A link like /invoice#students opens that tab (the new-tab dashboard uses these); otherwise the last tab used.
+  const savedTab = location.hash.slice(1) || storage.get('pw.tab');
   if(savedTab) document.querySelector(`.tabs [data-tab="${savedTab}"]`)?.click();
 })();
 </script>
